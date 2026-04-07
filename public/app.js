@@ -1,18 +1,22 @@
-/* Schedule Dashboard — frontend SPA */
+/* Schedule Dashboard — frontend SPA
+ *
+ * UX model:
+ * - Unauthenticated: see ALL clubs stacked in a read-only combined view
+ * - Sign in (per club, with a password) → edit that club's schedule and roster
+ * - Everyone can navigate weeks and view any club's data at any time
+ */
 (function () {
   'use strict';
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const state = {
-    clubs: [],
-    currentClubId: null,
-    weekStart: null,
-    schedule: null,
-    employees: [],
-    shifts: {},
+    me: { club_id: null, name: null },   // current auth state
+    clubs: [],                            // [{ id, name, has_password }]
+    weekStart: null,                      // YYYY-MM-DD
+    clubData: {},                         // clubId -> { schedule, employees, shifts }
   };
 
-  // -------- utils --------
+  // -------- dom helpers --------
   const $ = (sel, root = document) => root.querySelector(sel);
   const el = (tag, props = {}, children = []) => {
     const n = document.createElement(tag);
@@ -95,10 +99,13 @@
     if (t === 'shared') return 'team-shared';
     return 'team-main';
   }
-  function teamsForCurrentClub() {
-    const club = state.clubs.find(c => c.id === state.currentClubId);
-    if (club && club.name === 'Jacksonville') return ['Julington Creek', 'Jacksonville Beach', 'Shared'];
+  function teamsForClub(clubName) {
+    if (clubName === 'Jacksonville') return ['Julington Creek', 'Jacksonville Beach', 'Shared'];
     return ['Main', 'Shared'];
+  }
+
+  function canEdit(clubId) {
+    return state.me.club_id && Number(state.me.club_id) === Number(clubId);
   }
 
   // -------- modal --------
@@ -116,10 +123,11 @@
   // -------- bootstrap --------
   async function bootstrap() {
     try {
-      state.clubs = await api('/api/clubs');
-      if (!state.currentClubId && state.clubs.length) state.currentClubId = state.clubs[0].id;
+      const [me, clubs] = await Promise.all([api('/api/me'), api('/api/clubs')]);
+      state.me = me || { club_id: null };
+      state.clubs = clubs || [];
       if (!state.weekStart) state.weekStart = mondayOf(new Date());
-      await renderScheduleTab();
+      await render();
     } catch (err) {
       const body = $('#main-body');
       if (body) {
@@ -131,8 +139,45 @@
     }
   }
 
-  // -------- schedule tab --------
-  async function renderScheduleTab() {
+  // -------- render --------
+  async function render() {
+    renderTopbar();
+    await loadAllSchedules();
+    renderBody();
+  }
+
+  function renderTopbar() {
+    const chip = $('#user-chip');
+    chip.innerHTML = '';
+    if (state.me.club_id) {
+      chip.appendChild(el('span', { class: 'muted' }, `Signed in: ${state.me.name}`));
+      chip.appendChild(el('button', { class: 'ghost', onclick: openChangePasswordModal }, 'Change password'));
+      chip.appendChild(el('button', {
+        class: 'ghost',
+        onclick: async () => {
+          try { await api('/api/logout', { method: 'POST' }); } catch (_) {}
+          state.me = { club_id: null };
+          state.clubData = {};
+          await render();
+          toast('Signed out');
+        },
+      }, 'Sign out'));
+    } else {
+      chip.appendChild(el('button', { class: 'primary', onclick: openLoginModal }, 'Manager sign in'));
+    }
+  }
+
+  async function loadAllSchedules() {
+    const results = await Promise.all(state.clubs.map(c =>
+      api(`/api/clubs/${c.id}/schedule?week=${state.weekStart}`).then(data => ({ clubId: c.id, data }))
+    ));
+    state.clubData = {};
+    for (const { clubId, data } of results) {
+      state.clubData[clubId] = data;
+    }
+  }
+
+  function renderBody() {
     const body = $('#main-body');
     body.innerHTML = '';
 
@@ -141,87 +186,89 @@
       return;
     }
 
+    // Week navigator (applies to all clubs)
     const toolbar = el('div', { class: 'toolbar' });
-    // Club picker
-    const select = el('select', {
-      onchange: async (e) => { state.currentClubId = Number(e.target.value); await loadSchedule(); renderScheduleTab(); },
-    });
-    state.clubs.forEach(c => {
-      const opt = el('option', { value: c.id }, c.name);
-      if (c.id === state.currentClubId) opt.setAttribute('selected', 'selected');
-      select.appendChild(opt);
-    });
-    toolbar.appendChild(el('label', {}, ['Club', select]));
-
-    // Week nav
-    toolbar.appendChild(el('button', { onclick: async () => { state.weekStart = addDays(state.weekStart, -7); await loadSchedule(); renderScheduleTab(); } }, '← Prev week'));
-    toolbar.appendChild(el('div', { class: 'muted' }, state.weekStart ? fmtWeek(state.weekStart) : ''));
-    toolbar.appendChild(el('button', { onclick: async () => { state.weekStart = addDays(state.weekStart, 7); await loadSchedule(); renderScheduleTab(); } }, 'Next week →'));
-    toolbar.appendChild(el('button', { class: 'ghost', onclick: async () => { state.weekStart = mondayOf(new Date()); await loadSchedule(); renderScheduleTab(); } }, 'This week'));
-
-    toolbar.appendChild(el('div', { class: 'spacer' }));
-
-    // Manage roster button
-    toolbar.appendChild(el('button', { onclick: openRosterModal }, 'Manage roster'));
-
+    toolbar.appendChild(el('button', {
+      onclick: async () => { state.weekStart = addDays(state.weekStart, -7); await loadAllSchedules(); renderBody(); },
+    }, '← Prev week'));
+    toolbar.appendChild(el('div', { class: 'muted', style: 'font-weight:600;' }, fmtWeek(state.weekStart)));
+    toolbar.appendChild(el('button', {
+      onclick: async () => { state.weekStart = addDays(state.weekStart, 7); await loadAllSchedules(); renderBody(); },
+    }, 'Next week →'));
+    toolbar.appendChild(el('button', {
+      class: 'ghost',
+      onclick: async () => { state.weekStart = mondayOf(new Date()); await loadAllSchedules(); renderBody(); },
+    }, 'This week'));
     body.appendChild(toolbar);
 
-    // Load data if needed
-    if (!state.schedule || state.schedule.club_id !== state.currentClubId || state.schedule.week_start !== state.weekStart) {
-      await loadSchedule();
+    // Render each club stacked
+    for (const club of state.clubs) {
+      body.appendChild(renderClubSection(club));
+    }
+  }
+
+  function renderClubSection(club) {
+    const data = state.clubData[club.id];
+    const wrap = el('section', { class: 'club-section' });
+
+    // Header with club name and edit/roster controls
+    const header = el('div', { class: 'club-header' });
+    header.appendChild(el('h2', {}, club.name));
+    const editable = canEdit(club.id);
+    if (editable) {
+      header.appendChild(el('span', { class: 'edit-chip' }, 'Editing'));
+      header.appendChild(el('div', { class: 'spacer' }));
+      header.appendChild(el('button', {
+        onclick: () => openRosterModal(club),
+      }, 'Manage roster'));
+    } else {
+      header.appendChild(el('div', { class: 'spacer' }));
+      if (state.me.club_id == null) {
+        header.appendChild(el('button', {
+          class: 'ghost',
+          onclick: () => openLoginModal(club.id),
+        }, `Sign in to edit ${club.name}`));
+      }
+    }
+    wrap.appendChild(header);
+
+    if (!data) {
+      wrap.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No schedule loaded.'));
+      return wrap;
     }
 
-    // Status bar
-    const statusBar = el('div', { class: 'toolbar' });
-    statusBar.appendChild(el('span', { class: `status-pill ${state.schedule.status}` }, state.schedule.status.toUpperCase()));
-    statusBar.appendChild(el('div', { class: 'spacer' }));
-
-    if (state.schedule.status === 'draft') {
-      statusBar.appendChild(el('button', { class: 'primary', onclick: () => transition('submit') }, 'Submit for review'));
-      statusBar.appendChild(el('button', { onclick: () => transition('post') }, 'Post'));
-    } else if (state.schedule.status === 'submitted') {
-      statusBar.appendChild(el('button', { class: 'primary', onclick: () => transition('post') }, 'Approve & Post'));
-      statusBar.appendChild(el('button', { onclick: () => transition('recall') }, 'Recall'));
-    } else if (state.schedule.status === 'posted') {
-      statusBar.appendChild(el('button', { onclick: () => transition('return') }, 'Return to draft'));
-    }
-    body.appendChild(statusBar);
-
-    // Grid
-    body.appendChild(buildScheduleGrid(true));
+    wrap.appendChild(buildScheduleGrid(club, data, editable));
 
     // Notes
     const notesWrap = el('div', { class: 'notes' });
     notesWrap.appendChild(el('label', {}, 'Notes'));
     const ta = el('textarea', {
-      placeholder: 'Notes for this week…',
+      placeholder: editable ? 'Notes for this week…' : '(sign in to edit)',
     });
-    ta.value = state.schedule.notes || '';
-    let notesTimer;
-    ta.addEventListener('input', () => {
-      clearTimeout(notesTimer);
-      notesTimer = setTimeout(async () => {
-        try {
-          await api(`/api/schedules/${state.schedule.id}/notes`, { method: 'PATCH', body: { notes: ta.value } });
-        } catch (e) { toast(e.message, 'err'); }
-      }, 400);
-    });
+    ta.value = data.schedule.notes || '';
+    ta.disabled = !editable;
+    if (editable) {
+      let notesTimer;
+      ta.addEventListener('input', () => {
+        clearTimeout(notesTimer);
+        notesTimer = setTimeout(async () => {
+          try {
+            await api(`/api/schedules/${data.schedule.id}/notes`, { method: 'PATCH', body: { notes: ta.value } });
+          } catch (e) { toast(e.message, 'err'); }
+        }, 400);
+      });
+    }
     notesWrap.appendChild(ta);
-    body.appendChild(notesWrap);
+    wrap.appendChild(notesWrap);
+
+    return wrap;
   }
 
-  async function loadSchedule() {
-    const data = await api(`/api/clubs/${state.currentClubId}/schedule?week=${state.weekStart}`);
-    state.schedule = data.schedule;
-    state.employees = data.employees;
-    state.shifts = data.shifts || {};
-  }
-
-  function buildScheduleGrid(editable) {
+  function buildScheduleGrid(club, data, editable) {
     const wrap = el('div', { class: 'schedule-wrap' });
     const table = el('table', { class: 'schedule-table' });
 
-    // header
+    // header row
     const thead = el('thead');
     const headerRow = el('tr');
     headerRow.appendChild(el('th', {}, 'Employee'));
@@ -235,12 +282,11 @@
     // group by team preserving sort_order
     const tbody = el('tbody');
     const groups = new Map();
-    for (const e of state.employees) {
+    for (const e of data.employees) {
       const key = e.team || 'Main';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
     }
-    // team ordering
     const order = ['Julington Creek', 'Main', 'Jacksonville Beach', 'Team 2', 'Shared'];
     const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
       const ai = order.indexOf(a); const bi = order.indexOf(b);
@@ -257,24 +303,28 @@
         row.appendChild(el('td', { class: 'name-cell' }, emp.name));
         for (let d = 0; d < 7; d++) {
           const td = el('td', { class: 'day-cell' });
-          const input = el('input', { type: 'text', placeholder: '—' });
-          input.value = (state.shifts[emp.id] && state.shifts[emp.id][d]) || '';
-          input.disabled = !editable;
-          let t;
-          input.addEventListener('input', () => {
-            clearTimeout(t);
-            t = setTimeout(async () => {
-              try {
-                await api(`/api/schedules/${state.schedule.id}/cell`, {
-                  method: 'PATCH',
-                  body: { employee_id: emp.id, day_index: d, shift_text: input.value },
-                });
-                state.shifts[emp.id] = state.shifts[emp.id] || {};
-                state.shifts[emp.id][d] = input.value;
-              } catch (err) { toast(err.message, 'err'); }
-            }, 350);
-          });
-          td.appendChild(input);
+          const cellVal = (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+          if (editable) {
+            const input = el('input', { type: 'text', placeholder: '—' });
+            input.value = cellVal;
+            let t;
+            input.addEventListener('input', () => {
+              clearTimeout(t);
+              t = setTimeout(async () => {
+                try {
+                  await api(`/api/schedules/${data.schedule.id}/cell`, {
+                    method: 'PATCH',
+                    body: { employee_id: emp.id, day_index: d, shift_text: input.value },
+                  });
+                  data.shifts[emp.id] = data.shifts[emp.id] || {};
+                  data.shifts[emp.id][d] = input.value;
+                } catch (err) { toast(err.message, 'err'); }
+              }, 350);
+            });
+            td.appendChild(input);
+          } else {
+            td.appendChild(el('div', { class: 'day-readonly' }, cellVal || '—'));
+          }
           row.appendChild(td);
         }
         tbody.appendChild(row);
@@ -286,22 +336,84 @@
     return wrap;
   }
 
-  async function transition(kind) {
-    try {
-      await api(`/api/schedules/${state.schedule.id}/${kind}`, { method: 'POST' });
-      await loadSchedule();
-      renderScheduleTab();
-      toast('Updated');
-    } catch (e) { toast(e.message, 'err'); }
+  // -------- login modal --------
+  function openLoginModal(preselectClubId) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Manager sign in'));
+    content.appendChild(el('p', { class: 'muted' }, 'Pick your club and enter its password to edit the schedule.'));
+
+    const clubSel = el('select');
+    state.clubs.forEach(c => {
+      const opt = el('option', { value: c.id }, c.name + (c.has_password ? '' : ' (no password set)'));
+      if (preselectClubId && Number(c.id) === Number(preselectClubId)) opt.setAttribute('selected', 'selected');
+      clubSel.appendChild(opt);
+    });
+    const passIn = el('input', { type: 'password', placeholder: 'password', autocomplete: 'current-password' });
+    const errDiv = el('div', { class: 'error' });
+
+    const submit = async () => {
+      errDiv.textContent = '';
+      try {
+        const me = await api('/api/login', {
+          method: 'POST',
+          body: { club_id: Number(clubSel.value), password: passIn.value },
+        });
+        state.me = me;
+        closeModal();
+        await render();
+        toast(`Signed in to ${me.name}`);
+      } catch (e) { errDiv.textContent = e.message; }
+    };
+    passIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+
+    content.appendChild(el('label', {}, ['Club', clubSel]));
+    content.appendChild(el('label', {}, ['Password', passIn]));
+    content.appendChild(errDiv);
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', { class: 'primary', onclick: submit }, 'Sign in'),
+    ]));
+    openModal(content);
+    setTimeout(() => passIn.focus(), 50);
+  }
+
+  function openChangePasswordModal() {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Change password'));
+    content.appendChild(el('p', { class: 'muted' }, `Club: ${state.me.name}`));
+    const curIn = el('input', { type: 'password', placeholder: 'current password' });
+    const newIn = el('input', { type: 'password', placeholder: 'new password (min 4)' });
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(el('label', {}, ['Current password', curIn]));
+    content.appendChild(el('label', {}, ['New password', newIn]));
+    content.appendChild(errDiv);
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'primary',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            await api(`/api/clubs/${state.me.club_id}/password`, {
+              method: 'POST',
+              body: { current_password: curIn.value, new_password: newIn.value },
+            });
+            closeModal();
+            toast('Password updated');
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Update'),
+    ]));
+    openModal(content);
   }
 
   // -------- roster modal --------
-  async function openRosterModal() {
+  async function openRosterModal(club) {
     const content = el('div');
-    content.appendChild(el('h2', {}, 'Manage roster'));
+    content.appendChild(el('h2', {}, `Manage roster — ${club.name}`));
 
     async function refresh() {
-      const emps = await api(`/api/clubs/${state.currentClubId}/employees`);
+      const emps = await api(`/api/clubs/${club.id}/employees`);
       list.innerHTML = '';
       const table = el('table', { class: 'data-table' });
       table.appendChild(el('thead', {}, el('tr', {}, [
@@ -312,8 +424,7 @@
         const tr = el('tr');
         const nameInput = el('input', { value: e.name });
         const teamSelect = el('select');
-        const teamOpts = [...teamsForCurrentClub(), ''];
-        // Ensure the employee's current team is always in the list
+        const teamOpts = [...teamsForClub(club.name), ''];
         if (e.team && !teamOpts.includes(e.team)) teamOpts.unshift(e.team);
         teamOpts.forEach(opt => {
           const o = el('option', { value: opt }, opt || '(none)');
@@ -324,7 +435,7 @@
         tr.appendChild(el('td', {}, teamSelect));
         tr.appendChild(el('td', {}, e.archived ? el('span', { class: 'badge' }, 'archived') : el('span', { class: `badge ${teamBadgeClass(e.team)}` }, 'active')));
         const actions = el('td');
-        const saveBtn = el('button', {
+        actions.appendChild(el('button', {
           onclick: async () => {
             try {
               await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { name: nameInput.value, team: teamSelect.value } });
@@ -332,8 +443,9 @@
               refresh();
             } catch (err) { toast(err.message, 'err'); }
           },
-        }, 'Save');
-        const archiveBtn = el('button', {
+        }, 'Save'));
+        actions.appendChild(document.createTextNode(' '));
+        actions.appendChild(el('button', {
           class: 'ghost',
           onclick: async () => {
             try {
@@ -345,10 +457,7 @@
               refresh();
             } catch (err) { toast(err.message, 'err'); }
           },
-        }, e.archived ? 'Unarchive' : 'Archive');
-        actions.appendChild(saveBtn);
-        actions.appendChild(document.createTextNode(' '));
-        actions.appendChild(archiveBtn);
+        }, e.archived ? 'Unarchive' : 'Archive'));
         tr.appendChild(actions);
         tbody.appendChild(tr);
       });
@@ -359,11 +468,10 @@
     const list = el('div');
     content.appendChild(list);
 
-    // Add new
     const addWrap = el('div', { class: 'toolbar', style: 'margin-top:14px;' });
     const nameIn = el('input', { placeholder: 'New employee name' });
     const teamIn = el('select');
-    teamsForCurrentClub().forEach(t => teamIn.appendChild(el('option', { value: t }, t)));
+    teamsForClub(club.name).forEach(t => teamIn.appendChild(el('option', { value: t }, t)));
     addWrap.appendChild(nameIn);
     addWrap.appendChild(teamIn);
     addWrap.appendChild(el('button', {
@@ -371,7 +479,7 @@
       onclick: async () => {
         if (!nameIn.value.trim()) return;
         try {
-          await api(`/api/clubs/${state.currentClubId}/employees`, { method: 'POST', body: { name: nameIn.value.trim(), team: teamIn.value } });
+          await api(`/api/clubs/${club.id}/employees`, { method: 'POST', body: { name: nameIn.value.trim(), team: teamIn.value } });
           nameIn.value = '';
           refresh();
         } catch (err) { toast(err.message, 'err'); }
@@ -380,7 +488,9 @@
     content.appendChild(addWrap);
 
     content.appendChild(el('div', { class: 'modal-actions' }, [
-      el('button', { onclick: () => { closeModal(); loadSchedule().then(renderScheduleTab); } }, 'Close'),
+      el('button', {
+        onclick: async () => { closeModal(); await loadAllSchedules(); renderBody(); },
+      }, 'Close'),
     ]));
 
     openModal(content);

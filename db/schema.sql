@@ -3,8 +3,12 @@
 CREATE TABLE IF NOT EXISTS clubs (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
+  password_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- For existing deployments where clubs was created before password_hash existed
+ALTER TABLE clubs ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
