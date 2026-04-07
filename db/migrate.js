@@ -42,7 +42,7 @@ const ROSTERS = [
   },
   {
     club: 'St. Augustine',
-    team: 'Main',
+    team: null,
     sortBase: 0,
     names: [
       'Sean Dressander', 'Gavin Carillo', 'Jaxin Gamber', 'Zoe Henley',

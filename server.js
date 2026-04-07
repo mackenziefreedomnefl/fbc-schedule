@@ -194,8 +194,8 @@ app.post('/api/users', ah(async (req, res) => {
   const { email, name, password, role, club_id, team } = req.body || {};
   if (!email || !password || !role) return res.status(400).json({ error: 'email, password, role required' });
   if (!['owner', 'manager'].includes(role)) return res.status(400).json({ error: 'role must be owner or manager' });
-  if (role === 'manager' && (!club_id || !team)) {
-    return res.status(400).json({ error: 'managers require club_id and team' });
+  if (role === 'manager' && !club_id) {
+    return res.status(400).json({ error: 'managers require a club' });
   }
   if (password.length < 4) return res.status(400).json({ error: 'password must be at least 4 characters' });
   try {

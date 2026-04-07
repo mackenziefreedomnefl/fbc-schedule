@@ -112,8 +112,8 @@
     return 'team-main';
   }
   function teamsForClub(clubName) {
-    if (clubName === 'Jacksonville') return ['Julington Creek', 'Jacksonville Beach', 'Shared'];
-    return ['Main', 'Shared'];
+    if (clubName === 'Jacksonville') return ['Julington Creek', 'Jacksonville Beach'];
+    return []; // St. Augustine (and anything else) has no sub-teams
   }
 
   // Cell text coloring rules: managers type keywords and the text re-colors
@@ -318,20 +318,27 @@
     const tbody = el('tbody');
     const groups = new Map();
     for (const e of data.employees) {
-      const key = e.team || 'Main';
+      // Use the literal team value (including null/empty) so single-group
+      // clubs collapse into one unnamed bucket.
+      const key = e.team || '';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
     }
-    const order = ['Julington Creek', 'Main', 'Jacksonville Beach', 'Team 2', 'Shared'];
+    const order = ['Julington Creek', 'Jacksonville Beach'];
     const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
       const ai = order.indexOf(a); const bi = order.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
+    // Only draw team divider rows when there is more than one group.
+    const showDividers = sortedKeys.length > 1;
+
     sortedKeys.forEach((teamName) => {
-      const divider = el('tr', { class: 'team-divider' });
-      divider.appendChild(el('td', { colspan: 8 }, teamName));
-      tbody.appendChild(divider);
+      if (showDividers && teamName) {
+        const divider = el('tr', { class: 'team-divider' });
+        divider.appendChild(el('td', { colspan: 8 }, teamName));
+        tbody.appendChild(divider);
+      }
 
       for (const emp of groups.get(teamName)) {
         const editable = canEditEmployee(emp);
@@ -617,15 +624,19 @@
     const clubSel = el('select');
     state.clubs.forEach(c => clubSel.appendChild(el('option', { value: c.id }, c.name)));
     const teamSel = el('select');
+    const teamLabel = el('label', {}, ['Team', teamSel]);
     function refreshTeams() {
       teamSel.innerHTML = '';
       const club = state.clubs.find(c => c.id === Number(clubSel.value));
-      teamsForClub(club ? club.name : '').forEach(t => {
-        teamSel.appendChild(el('option', { value: t }, t));
-      });
+      const teams = teamsForClub(club ? club.name : '');
+      if (teams.length === 0) {
+        teamLabel.style.display = 'none';
+      } else {
+        teamLabel.style.display = '';
+        teams.forEach(t => teamSel.appendChild(el('option', { value: t }, t)));
+      }
     }
     clubSel.addEventListener('change', refreshTeams);
-    refreshTeams();
 
     const errDiv = el('div', { class: 'error' });
 
@@ -633,8 +644,9 @@
     content.appendChild(el('label', {}, ['Name', nameIn]));
     content.appendChild(el('label', {}, ['Temporary password', passIn]));
     content.appendChild(el('label', {}, ['Club', clubSel]));
-    content.appendChild(el('label', {}, ['Team', teamSel]));
+    content.appendChild(teamLabel);
     content.appendChild(errDiv);
+    refreshTeams();
     content.appendChild(el('div', { class: 'modal-actions' }, [
       el('button', { onclick: closeModal }, 'Cancel'),
       el('button', {
@@ -642,6 +654,8 @@
         onclick: async () => {
           errDiv.textContent = '';
           try {
+            const club = state.clubs.find(c => c.id === Number(clubSel.value));
+            const teams = teamsForClub(club ? club.name : '');
             await api('/api/users', {
               method: 'POST',
               body: {
@@ -650,7 +664,7 @@
                 password: passIn.value,
                 role: 'manager',
                 club_id: Number(clubSel.value),
-                team: teamSel.value,
+                team: teams.length ? teamSel.value : null,
               },
             });
             closeModal();
