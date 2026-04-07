@@ -28,19 +28,19 @@
     {
       "name": "St. Augustine",
       "employees": [
-        { "name": "Sean Dressander", "team": "Main" },
-        { "name": "Gavin Carillo", "team": "Main" },
-        { "name": "Jaxin Gamber", "team": "Main" },
-        { "name": "Zoe Henley", "team": "Main" },
-        { "name": "Michael Guillet", "team": "Main" },
-        { "name": "Julia Catlett", "team": "Main" },
-        { "name": "Ryan Constantino", "team": "Main" },
-        { "name": "John Gleaton-Hernandez", "team": "Main" },
-        { "name": "Bill Harris", "team": "Main" },
-        { "name": "Aidan Popp", "team": "Main" },
-        { "name": "Austin Corzo", "team": "Main" },
-        { "name": "Jack Fant", "team": "Main" },
-        { "name": "Alexander Vida", "team": "Main" }
+        { "name": "Sean Dressander", "team": null },
+        { "name": "Gavin Carillo", "team": null },
+        { "name": "Jaxin Gamber", "team": null },
+        { "name": "Zoe Henley", "team": null },
+        { "name": "Michael Guillet", "team": null },
+        { "name": "Julia Catlett", "team": null },
+        { "name": "Ryan Constantino", "team": null },
+        { "name": "John Gleaton-Hernandez", "team": null },
+        { "name": "Bill Harris", "team": null },
+        { "name": "Aidan Popp", "team": null },
+        { "name": "Austin Corzo", "team": null },
+        { "name": "Jack Fant", "team": null },
+        { "name": "Alexander Vida", "team": null }
       ]
     }
   ]
