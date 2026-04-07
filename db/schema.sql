@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS shifts (
 
 CREATE INDEX IF NOT EXISTS shifts_schedule_idx ON shifts(schedule_id);
 
+-- Per-club, per-day, per-location staffing totals (manually entered by managers)
+CREATE TABLE IF NOT EXISTS location_totals (
+  id SERIAL PRIMARY KEY,
+  schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+  location TEXT NOT NULL,
+  day_index INTEGER NOT NULL CHECK (day_index BETWEEN 0 AND 6),
+  count_text TEXT NOT NULL DEFAULT '',
+  UNIQUE (schedule_id, location, day_index)
+);
+CREATE INDEX IF NOT EXISTS location_totals_schedule_idx ON location_totals(schedule_id);
+
 -- session table for connect-pg-simple
 CREATE TABLE IF NOT EXISTS "session" (
   "sid" varchar NOT NULL COLLATE "default",

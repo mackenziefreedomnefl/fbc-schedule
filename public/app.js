@@ -116,6 +116,17 @@
     return ['Main', 'Shared'];
   }
 
+  // Cell text coloring rules: managers type keywords and the text re-colors
+  // to give a quick visual read of the grid.
+  function cellColorFor(text) {
+    if (!text) return '';
+    const s = text.toLowerCase();
+    if (s.includes('req off')) return 'var(--danger)';
+    if (s.includes('west')) return 'var(--accent)';
+    if (s.includes('shipyard')) return 'var(--accent)';
+    return '';
+  }
+
   // -------- permission helpers --------
   function isOwner() { return state.me && (state.me.role === 'owner' || state.me.role === 'admin'); }
   function isLoggedIn() { return state.me && state.me.id != null; }
@@ -263,6 +274,7 @@
     }
 
     wrap.appendChild(buildScheduleGrid(club, data));
+    wrap.appendChild(buildTotalsGrid(club, data));
 
     const editableNotes = canEditClub(club.id);
     const notesWrap = el('div', { class: 'notes' });
@@ -331,8 +343,10 @@
           if (editable) {
             const input = el('input', { type: 'text', placeholder: '—' });
             input.value = cellVal;
+            input.style.color = cellColorFor(cellVal);
             let t;
             input.addEventListener('input', () => {
+              input.style.color = cellColorFor(input.value);
               clearTimeout(t);
               t = setTimeout(async () => {
                 try {
@@ -347,7 +361,9 @@
             });
             td.appendChild(input);
           } else {
-            td.appendChild(el('div', { class: 'day-readonly' }, cellVal || '—'));
+            const div = el('div', { class: 'day-readonly' }, cellVal || '—');
+            div.style.color = cellColorFor(cellVal);
+            td.appendChild(div);
           }
           row.appendChild(td);
         }
@@ -355,6 +371,63 @@
       }
     });
 
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  function buildTotalsGrid(club, data) {
+    const locations = data.locations || [];
+    if (!locations.length) return el('div');
+
+    const editable = canEditClub(club.id);
+    const wrap = el('div', { class: 'totals-wrap' });
+    wrap.appendChild(el('div', { class: 'totals-label' }, 'Staffing by location'));
+
+    const table = el('table', { class: 'totals-table' });
+    const thead = el('thead');
+    const hrow = el('tr');
+    hrow.appendChild(el('th', {}, 'Location'));
+    DAYS.forEach((d, i) => {
+      const date = new Date(state.weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
+      hrow.appendChild(el('th', {}, `${d} ${date.getMonth() + 1}/${date.getDate()}`));
+    });
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    locations.forEach(loc => {
+      const tr = el('tr');
+      tr.appendChild(el('td', { class: 'totals-loc' }, loc));
+      for (let d = 0; d < 7; d++) {
+        const td = el('td', { class: 'totals-cell' });
+        const val = (data.totals && data.totals[loc] && data.totals[loc][d]) || '';
+        if (editable) {
+          const input = el('input', { type: 'text', placeholder: '—', inputmode: 'numeric' });
+          input.value = val;
+          let t;
+          input.addEventListener('input', () => {
+            clearTimeout(t);
+            t = setTimeout(async () => {
+              try {
+                await api(`/api/schedules/${data.schedule.id}/total`, {
+                  method: 'PATCH',
+                  body: { location: loc, day_index: d, count_text: input.value },
+                });
+                data.totals = data.totals || {};
+                data.totals[loc] = data.totals[loc] || {};
+                data.totals[loc][d] = input.value;
+              } catch (err) { toast(err.message, 'err'); }
+            }, 350);
+          });
+          td.appendChild(input);
+        } else {
+          td.appendChild(el('div', { class: 'day-readonly' }, val || '—'));
+        }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
     table.appendChild(tbody);
     wrap.appendChild(table);
     return wrap;
@@ -626,6 +699,10 @@
       }
       case 'notes_edit':
         return `updated ${club} notes for week of ${d.week_start}`;
+      case 'total_edit': {
+        const day = DAYS[d.day_index] || `day ${d.day_index}`;
+        return `set ${d.location} ${day} count to "${d.count_text || '(empty)'}" (week of ${d.week_start})`;
+      }
       case 'employee_add':
         return `added ${d.employee_name} to ${club}${team}`;
       case 'employee_update':
