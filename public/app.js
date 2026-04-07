@@ -104,10 +104,20 @@
 
   // -------- bootstrap --------
   async function bootstrap() {
-    state.clubs = await api('/api/clubs');
-    if (!state.currentClubId && state.clubs.length) state.currentClubId = state.clubs[0].id;
-    if (!state.weekStart) state.weekStart = mondayOf(new Date());
-    await renderScheduleTab();
+    try {
+      state.clubs = await api('/api/clubs');
+      if (!state.currentClubId && state.clubs.length) state.currentClubId = state.clubs[0].id;
+      if (!state.weekStart) state.weekStart = mondayOf(new Date());
+      await renderScheduleTab();
+    } catch (err) {
+      const body = $('#main-body');
+      if (body) {
+        body.innerHTML = '';
+        body.appendChild(el('div', { class: 'error', style: 'padding:20px;' },
+          `Failed to load: ${err && err.message ? err.message : err}`));
+      }
+      console.error('[bootstrap] failed', err);
+    }
   }
 
   // -------- schedule tab --------

@@ -17,7 +17,13 @@ const pool = new Pool({
 const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    }
+  },
+}));
 
 // ---------- helpers ----------
 // Normalize a date (string or Date) to the Monday of its week as YYYY-MM-DD
@@ -202,6 +208,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISO
 
 // ---------- SPA fallback ----------
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
