@@ -46,19 +46,67 @@ app.use(session({
 // middleware. Wrap every async handler with ah() so rejections are caught.
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// Auth model: a session is either anonymous (read-only) or tied to a specific
-// club via req.session.clubId. Writes that touch a club require the session
-// to be tied to that exact club.
-function requireClub(req, res, clubId) {
-  if (!req.session.clubId) {
-    res.status(401).json({ error: 'sign in required' });
-    return false;
-  }
-  if (Number(req.session.clubId) !== Number(clubId)) {
-    res.status(403).json({ error: 'you are signed in to a different club' });
-    return false;
-  }
+// Look up the current logged-in user by session.userId. Returns null when
+// the session is anonymous or the user no longer exists.
+async function loadUser(req) {
+  if (!req.session.userId) return null;
+  const { rows } = await pool.query(
+    'SELECT id, email, role, club_id, team, name FROM users WHERE id = $1',
+    [req.session.userId]
+  );
+  return rows[0] || null;
+}
+
+function isOwner(user) {
+  return user && (user.role === 'owner' || user.role === 'admin');
+}
+
+// Whether a user can edit a single employee's row (cells, name, team, archive).
+function canEditEmployee(user, employee) {
+  if (!user || !employee) return false;
+  if (isOwner(user)) return true;
+  if (user.role !== 'manager') return false;
+  if (Number(user.club_id) !== Number(employee.club_id)) return false;
+  if (user.team) return (employee.team || '') === user.team;
   return true;
+}
+
+// Whether a user can add an employee to (clubId, team).
+function canEditTeam(user, clubId, team) {
+  if (!user) return false;
+  if (isOwner(user)) return true;
+  if (user.role !== 'manager') return false;
+  if (Number(user.club_id) !== Number(clubId)) return false;
+  if (user.team) return team === user.team;
+  return true;
+}
+
+// Whether a user can edit anything inside a club (e.g. notes shared per
+// schedule). Owners always; managers if their club matches.
+function canEditClub(user, clubId) {
+  if (!user) return false;
+  if (isOwner(user)) return true;
+  if (user.role !== 'manager') return false;
+  return Number(user.club_id) === Number(clubId);
+}
+
+function userLabel(user) {
+  if (!user) return 'unknown';
+  return user.name && user.name.trim() ? user.name : user.email;
+}
+
+// Insert an audit log row. Never throws — failure to write the log should
+// not break the actual write operation that triggered it.
+async function audit(user, action, clubId, team, details) {
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (user_id, user_label, action, club_id, team, details)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [user ? user.id : null, userLabel(user), action, clubId || null, team || null, JSON.stringify(details || {})]
+    );
+  } catch (e) {
+    console.error('[audit] failed to record', action, e.message);
+  }
 }
 
 // Normalize a date (string or Date) to the Monday of its week as YYYY-MM-DD
@@ -71,18 +119,25 @@ function mondayOf(dateLike) {
   return d.toISOString().slice(0, 10);
 }
 
+function publicUser(u) {
+  if (!u) return null;
+  return { id: u.id, email: u.email, role: u.role, club_id: u.club_id, team: u.team, name: u.name };
+}
+
 // ---------- auth ----------
 app.post('/api/login', ah(async (req, res) => {
-  const { club_id, password } = req.body || {};
-  if (!club_id || !password) return res.status(400).json({ error: 'club_id and password required' });
-  const { rows } = await pool.query('SELECT id, name, password_hash FROM clubs WHERE id = $1', [club_id]);
-  const club = rows[0];
-  if (!club) return res.status(404).json({ error: 'club not found' });
-  if (!club.password_hash) return res.status(400).json({ error: 'this club has no password set yet' });
-  const ok = await bcrypt.compare(password, club.password_hash);
-  if (!ok) return res.status(401).json({ error: 'wrong password' });
-  req.session.clubId = club.id;
-  res.json({ club_id: club.id, name: club.name });
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+  const { rows } = await pool.query(
+    'SELECT id, email, password_hash, role, club_id, team, name FROM users WHERE email = $1',
+    [String(email).toLowerCase().trim()]
+  );
+  const u = rows[0];
+  if (!u) return res.status(401).json({ error: 'invalid email or password' });
+  const ok = await bcrypt.compare(password, u.password_hash);
+  if (!ok) return res.status(401).json({ error: 'invalid email or password' });
+  req.session.userId = u.id;
+  res.json(publicUser(u));
 }));
 
 app.post('/api/logout', (req, res) => {
@@ -90,40 +145,131 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', ah(async (req, res) => {
-  if (!req.session.clubId) return res.json({ club_id: null });
-  const { rows } = await pool.query('SELECT id AS club_id, name FROM clubs WHERE id = $1', [req.session.clubId]);
-  if (!rows[0]) {
-    req.session.destroy(() => {});
-    return res.json({ club_id: null });
-  }
-  res.json({ club_id: rows[0].club_id, name: rows[0].name });
+  const user = await loadUser(req);
+  if (!user) return res.json({ id: null });
+  res.json(publicUser(user));
 }));
 
-app.post('/api/clubs/:id/password', ah(async (req, res) => {
-  const clubId = Number(req.params.id);
-  if (!requireClub(req, res, clubId)) return;
+app.post('/api/me/password', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const { current_password, new_password } = req.body || {};
   if (!new_password || new_password.length < 4) {
     return res.status(400).json({ error: 'new password must be at least 4 characters' });
   }
-  const { rows } = await pool.query('SELECT password_hash FROM clubs WHERE id = $1', [clubId]);
-  if (!rows[0]) return res.status(404).json({ error: 'club not found' });
-  if (rows[0].password_hash) {
-    const ok = await bcrypt.compare(current_password || '', rows[0].password_hash);
-    if (!ok) return res.status(400).json({ error: 'current password is wrong' });
-  }
+  const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
+  const ok = await bcrypt.compare(current_password || '', rows[0].password_hash);
+  if (!ok) return res.status(400).json({ error: 'current password is wrong' });
   const hash = await bcrypt.hash(new_password, 10);
-  await pool.query('UPDATE clubs SET password_hash = $1 WHERE id = $2', [hash, clubId]);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, user.id]);
   res.json({ ok: true });
 }));
 
-// ---------- clubs ----------
-// Public: list clubs. Returns has_password so the frontend can warn if a club
-// has no password set yet.
-app.get('/api/clubs', ah(async (req, res) => {
+// ---------- users (owner-only) ----------
+app.get('/api/users', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
   const { rows } = await pool.query(
-    'SELECT id, name, (password_hash IS NOT NULL) AS has_password FROM clubs ORDER BY name'
+    `SELECT u.id, u.email, u.role, u.club_id, u.team, u.name, c.name AS club_name
+       FROM users u LEFT JOIN clubs c ON c.id = u.club_id
+      ORDER BY u.role DESC, u.email`
   );
+  res.json(rows);
+}));
+
+app.post('/api/users', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { email, name, password, role, club_id, team } = req.body || {};
+  if (!email || !password || !role) return res.status(400).json({ error: 'email, password, role required' });
+  if (!['owner', 'manager'].includes(role)) return res.status(400).json({ error: 'role must be owner or manager' });
+  if (role === 'manager' && (!club_id || !team)) {
+    return res.status(400).json({ error: 'managers require club_id and team' });
+  }
+  if (password.length < 4) return res.status(400).json({ error: 'password must be at least 4 characters' });
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO users (email, password_hash, role, club_id, team, name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, email, role, club_id, team, name`,
+      [String(email).toLowerCase().trim(), hash, role,
+       role === 'manager' ? club_id : null,
+       role === 'manager' ? team : null,
+       name || null]
+    );
+    await audit(user, 'user_create', null, null, { created_user_id: rows[0].id, email: rows[0].email, role, team: rows[0].team });
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+}));
+
+app.patch('/api/users/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const id = Number(req.params.id);
+  const { password, role, club_id, team, name } = req.body || {};
+  const sets = [];
+  const vals = [];
+  if (password) {
+    if (password.length < 4) return res.status(400).json({ error: 'password must be at least 4 characters' });
+    const hash = await bcrypt.hash(password, 10);
+    vals.push(hash); sets.push(`password_hash = $${vals.length}`);
+  }
+  if (role) {
+    if (!['owner', 'manager'].includes(role)) return res.status(400).json({ error: 'bad role' });
+    vals.push(role); sets.push(`role = $${vals.length}`);
+  }
+  if (club_id !== undefined) {
+    vals.push(club_id || null); sets.push(`club_id = $${vals.length}`);
+  }
+  if (team !== undefined) {
+    vals.push(team || null); sets.push(`team = $${vals.length}`);
+  }
+  if (name !== undefined) {
+    vals.push(name || null); sets.push(`name = $${vals.length}`);
+  }
+  if (!sets.length) return res.json({ ok: true });
+  vals.push(id);
+  const { rows } = await pool.query(
+    `UPDATE users SET ${sets.join(', ')} WHERE id = $${vals.length}
+     RETURNING id, email, role, club_id, team, name`,
+    vals
+  );
+  await audit(user, 'user_update', null, null, { target_user_id: id, fields: Object.keys(req.body || {}) });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/users/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const id = Number(req.params.id);
+  if (id === user.id) return res.status(400).json({ error: 'cannot delete yourself' });
+  await pool.query('DELETE FROM users WHERE id = $1', [id]);
+  await audit(user, 'user_delete', null, null, { deleted_user_id: id });
+  res.json({ ok: true });
+}));
+
+// ---------- audit log (owner-only) ----------
+app.get('/api/audit', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { rows } = await pool.query(
+    `SELECT a.id, a.user_id, a.user_label, a.action, a.club_id, a.team, a.details, a.created_at,
+            c.name AS club_name
+       FROM audit_log a
+       LEFT JOIN clubs c ON c.id = a.club_id
+      WHERE a.created_at >= NOW() - INTERVAL '30 days'
+      ORDER BY a.created_at DESC
+      LIMIT 500`
+  );
+  res.json(rows);
+}));
+
+// ---------- clubs ----------
+app.get('/api/clubs', ah(async (req, res) => {
+  const { rows } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
   res.json(rows);
 }));
 
@@ -138,10 +284,14 @@ app.get('/api/clubs/:id/employees', ah(async (req, res) => {
 }));
 
 app.post('/api/clubs/:id/employees', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const clubId = Number(req.params.id);
-  if (!requireClub(req, res, clubId)) return;
   const { name, team } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
+  if (!canEditTeam(user, clubId, team || '')) {
+    return res.status(403).json({ error: 'you do not manage that team' });
+  }
   const { rows: maxRows } = await pool.query(
     'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM employees WHERE club_id = $1',
     [clubId]
@@ -150,15 +300,26 @@ app.post('/api/clubs/:id/employees', ah(async (req, res) => {
     'INSERT INTO employees (club_id, name, team, sort_order) VALUES ($1,$2,$3,$4) RETURNING *',
     [clubId, name, team || null, maxRows[0].next]
   );
+  await audit(user, 'employee_add', clubId, team || null, { employee_id: rows[0].id, employee_name: name, team: team || null });
   res.json(rows[0]);
 }));
 
 app.patch('/api/employees/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const empId = Number(req.params.id);
   const { rows: existing } = await pool.query('SELECT * FROM employees WHERE id = $1', [empId]);
   if (!existing[0]) return res.status(404).json({ error: 'not found' });
-  if (!requireClub(req, res, existing[0].club_id)) return;
+  if (!canEditEmployee(user, existing[0])) {
+    return res.status(403).json({ error: 'you cannot edit this employee' });
+  }
   const { name, team, archived, sort_order } = req.body || {};
+  // If team is changing, check that the user can also edit the destination team
+  if (team !== undefined && team !== null && team !== existing[0].team) {
+    if (!canEditTeam(user, existing[0].club_id, team)) {
+      return res.status(403).json({ error: 'you cannot move employees into that team' });
+    }
+  }
   const { rows } = await pool.query(
     `UPDATE employees
        SET name = COALESCE($1, name),
@@ -168,16 +329,28 @@ app.patch('/api/employees/:id', ah(async (req, res) => {
      WHERE id = $5 RETURNING *`,
     [name ?? null, team ?? null, typeof archived === 'boolean' ? archived : null, sort_order ?? null, empId]
   );
+  await audit(user, 'employee_update', existing[0].club_id, existing[0].team, {
+    employee_id: empId,
+    employee_name: rows[0].name,
+    changes: { name, team, archived, sort_order },
+  });
   res.json(rows[0]);
 }));
 
 app.delete('/api/employees/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const empId = Number(req.params.id);
   const { rows: existing } = await pool.query('SELECT * FROM employees WHERE id = $1', [empId]);
   if (!existing[0]) return res.status(404).json({ error: 'not found' });
-  if (!requireClub(req, res, existing[0].club_id)) return;
+  if (!canEditEmployee(user, existing[0])) {
+    return res.status(403).json({ error: 'you cannot edit this employee' });
+  }
   // Archive instead of hard-delete (preserves history)
   await pool.query('UPDATE employees SET archived = TRUE WHERE id = $1', [empId]);
+  await audit(user, 'employee_archive', existing[0].club_id, existing[0].team, {
+    employee_id: empId, employee_name: existing[0].name,
+  });
   res.json({ ok: true });
 }));
 
@@ -210,7 +383,6 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     'SELECT employee_id, day_index, shift_text FROM shifts WHERE schedule_id = $1',
     [schedule.id]
   );
-  // shiftMap[employee_id][day_index] = text
   const shiftMap = {};
   for (const s of shifts) {
     shiftMap[s.employee_id] = shiftMap[s.employee_id] || {};
@@ -232,16 +404,26 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
 }));
 
 app.patch('/api/schedules/:id/cell', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const scheduleId = Number(req.params.id);
   const { employee_id, day_index, shift_text } = req.body || {};
   if (employee_id == null || day_index == null) return res.status(400).json({ error: 'employee_id and day_index required' });
   const { rows: schedRows } = await pool.query('SELECT * FROM schedules WHERE id = $1', [scheduleId]);
   const sched = schedRows[0];
   if (!sched) return res.status(404).json({ error: 'schedule not found' });
-  if (!requireClub(req, res, sched.club_id)) return;
-  // ensure employee belongs to this club
-  const { rows: empRows } = await pool.query('SELECT id FROM employees WHERE id = $1 AND club_id = $2', [employee_id, sched.club_id]);
-  if (!empRows[0]) return res.status(400).json({ error: 'employee not in this club' });
+  const { rows: empRows } = await pool.query('SELECT * FROM employees WHERE id = $1 AND club_id = $2', [employee_id, sched.club_id]);
+  const employee = empRows[0];
+  if (!employee) return res.status(400).json({ error: 'employee not in this club' });
+  if (!canEditEmployee(user, employee)) {
+    return res.status(403).json({ error: 'you do not manage that team' });
+  }
+  // Capture previous value for the audit log
+  const { rows: prevRows } = await pool.query(
+    'SELECT shift_text FROM shifts WHERE schedule_id = $1 AND employee_id = $2 AND day_index = $3',
+    [scheduleId, employee_id, day_index]
+  );
+  const oldValue = prevRows[0] ? prevRows[0].shift_text : '';
   await pool.query(
     `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
      VALUES ($1,$2,$3,$4)
@@ -250,16 +432,35 @@ app.patch('/api/schedules/:id/cell', ah(async (req, res) => {
     [scheduleId, employee_id, day_index, shift_text || '']
   );
   await pool.query('UPDATE schedules SET updated_at = NOW() WHERE id = $1', [scheduleId]);
+  await audit(user, 'cell_edit', sched.club_id, employee.team, {
+    employee_id, employee_name: employee.name,
+    day_index,
+    week_start: sched.week_start instanceof Date
+      ? sched.week_start.toISOString().slice(0, 10)
+      : sched.week_start,
+    old_value: oldValue,
+    new_value: shift_text || '',
+  });
   res.json({ ok: true });
 }));
 
 app.patch('/api/schedules/:id/notes', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const scheduleId = Number(req.params.id);
   const { notes } = req.body || {};
-  const { rows } = await pool.query('SELECT club_id FROM schedules WHERE id = $1', [scheduleId]);
+  const { rows } = await pool.query('SELECT club_id, week_start FROM schedules WHERE id = $1', [scheduleId]);
   if (!rows[0]) return res.status(404).json({ error: 'schedule not found' });
-  if (!requireClub(req, res, rows[0].club_id)) return;
+  if (!canEditClub(user, rows[0].club_id)) {
+    return res.status(403).json({ error: 'you do not manage this club' });
+  }
   await pool.query('UPDATE schedules SET notes = $1, updated_at = NOW() WHERE id = $2', [notes || '', scheduleId]);
+  await audit(user, 'notes_edit', rows[0].club_id, null, {
+    week_start: rows[0].week_start instanceof Date
+      ? rows[0].week_start.toISOString().slice(0, 10)
+      : rows[0].week_start,
+    preview: (notes || '').slice(0, 80),
+  });
   res.json({ ok: true });
 }));
 
@@ -280,8 +481,6 @@ app.get('*', (req, res) => {
 });
 
 // ---------- JSON error handler ----------
-// Any uncaught error in a route handler ends up here. Always return JSON so the
-// frontend can surface a useful message instead of "Request failed".
 app.use((err, req, res, next) => {
   console.error('[server] unhandled error', err);
   if (res.headersSent) return next(err);
