@@ -15,6 +15,53 @@ const CLUB_PASSWORD_ENV = {
   'St. Augustine': 'ST_AUGUSTINE_PASSWORD',
 };
 
+// Authoritative rosters. Each array is the ordered list of active employees
+// for that team. Running sync updates every listed employee's team, sort
+// position, and archived=false state, inserts any that are missing, and
+// archives anyone in REMOVED_FROM_ROSTER. Safe to re-run.
+const ROSTERS = [
+  {
+    club: 'Jacksonville',
+    team: 'Julington Creek',
+    sortBase: 0,
+    names: [
+      'Nick Tragemann', 'Alison Conner', 'Sergio Palacios', 'Sam Wentworth',
+      'Branson Messer', 'William Krupsky', 'Davin Barbour', 'Delaney Holcomb',
+      'Aiden Rock', 'William Eisner',
+    ],
+  },
+  {
+    club: 'Jacksonville',
+    team: 'Jacksonville Beach',
+    sortBase: 100,
+    names: [
+      'Dustyn Burd', 'Michael Mobley', 'Brandon Lanier', 'Tyler Boggess',
+      'Morgan Tragemann', 'Justice Bramer', 'Jaron Firesheets', 'Alec Murino',
+      'Mackenzie Shealy', 'Brandon McSwigan',
+    ],
+  },
+  {
+    club: 'St. Augustine',
+    team: 'Main',
+    sortBase: 0,
+    names: [
+      'Sean Dressander', 'Gavin Carillo', 'Jaxin Gamber', 'Zoe Henley',
+      'Michael Guillet', 'Julia Catlett', 'Ryan Constantino',
+      'John Gleaton-Hernandez', 'Bill Harris', 'Aidan Popp', 'Austin Corzo',
+      'Jack Fant', 'Alexander Vida',
+    ],
+  },
+];
+
+// Names explicitly removed from their club's active roster. These get
+// archived (not deleted) so their past shifts stay intact.
+const REMOVED_FROM_ROSTER = [
+  { club: 'Jacksonville', name: 'Caroline Sirico' },
+  { club: 'Jacksonville', name: 'Rain Bartenfelder' },
+  { club: 'St. Augustine', name: 'Andrew Gibner' },
+  { club: 'St. Augustine', name: 'Dalton Hawley' },
+];
+
 async function main() {
   if (!process.env.DATABASE_URL) {
     console.warn('[migrate] DATABASE_URL not set — skipping migration. (This is expected during local `npm install` without a DB.)');
@@ -70,6 +117,43 @@ async function main() {
     );
     if (r1 || r2) {
       console.log(`[migrate] renamed Jacksonville teams: Main→Julington Creek (${r1}), Team 2→Jacksonville Beach (${r2})`);
+    }
+
+    // Sync authoritative rosters. For every listed employee: upsert, unarchive,
+    // set team + sort_order to match the list. For names in REMOVED_FROM_ROSTER:
+    // archive. Idempotent.
+    for (const roster of ROSTERS) {
+      const { rows: clubRows } = await pool.query('SELECT id FROM clubs WHERE name = $1', [roster.club]);
+      if (!clubRows[0]) continue;
+      const clubId = clubRows[0].id;
+      for (let i = 0; i < roster.names.length; i++) {
+        const name = roster.names[i];
+        const sortOrder = roster.sortBase + i;
+        const { rowCount } = await pool.query(
+          `UPDATE employees
+             SET team = $1, sort_order = $2, archived = FALSE
+           WHERE club_id = $3 AND name = $4`,
+          [roster.team, sortOrder, clubId, name]
+        );
+        if (rowCount === 0) {
+          await pool.query(
+            'INSERT INTO employees (club_id, name, team, sort_order, archived) VALUES ($1,$2,$3,$4,FALSE)',
+            [clubId, name, roster.team, sortOrder]
+          );
+          console.log(`[migrate] added ${name} to ${roster.club} / ${roster.team}`);
+        }
+      }
+    }
+    for (const removed of REMOVED_FROM_ROSTER) {
+      const { rowCount } = await pool.query(
+        `UPDATE employees
+           SET archived = TRUE
+         WHERE name = $1
+           AND club_id = (SELECT id FROM clubs WHERE name = $2)
+           AND archived = FALSE`,
+        [removed.name, removed.club]
+      );
+      if (rowCount) console.log(`[migrate] archived ${removed.name} from ${removed.club}`);
     }
 
     // Seed club passwords from env vars. Only writes when the password_hash
