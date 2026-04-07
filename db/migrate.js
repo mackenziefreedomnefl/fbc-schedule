@@ -2,7 +2,18 @@
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+
+// Map of club name -> env var holding that club's password.
+// A password is only ever written to the DB if the column is still null,
+// so setting the env var re-seeds the password only when it was never set.
+// To change a password after that, use the /api/clubs/:id/password endpoint
+// or set FORCE_RESET_PASSWORDS=true and redeploy.
+const CLUB_PASSWORD_ENV = {
+  'Jacksonville': 'JACKSONVILLE_PASSWORD',
+  'St. Augustine': 'ST_AUGUSTINE_PASSWORD',
+};
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -59,6 +70,20 @@ async function main() {
     );
     if (r1 || r2) {
       console.log(`[migrate] renamed Jacksonville teams: Main→Julington Creek (${r1}), Team 2→Jacksonville Beach (${r2})`);
+    }
+
+    // Seed club passwords from env vars. Only writes when the password_hash
+    // column is null, unless FORCE_RESET_PASSWORDS=true is set.
+    const forceReset = String(process.env.FORCE_RESET_PASSWORDS || '').toLowerCase() === 'true';
+    for (const [clubName, envKey] of Object.entries(CLUB_PASSWORD_ENV)) {
+      const pw = process.env[envKey];
+      if (!pw) continue;
+      const { rows: clubRows } = await pool.query('SELECT id, password_hash FROM clubs WHERE name = $1', [clubName]);
+      if (!clubRows[0]) continue;
+      if (clubRows[0].password_hash && !forceReset) continue;
+      const hash = await bcrypt.hash(pw, 10);
+      await pool.query('UPDATE clubs SET password_hash = $1 WHERE id = $2', [hash, clubRows[0].id]);
+      console.log(`[migrate] set password for ${clubName} from ${envKey}`);
     }
 
     console.log('[migrate] done.');
