@@ -37,8 +37,14 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     if (!res.ok) {
-      let msg = 'Request failed';
-      try { msg = (await res.json()).error || msg; } catch (_) {}
+      let msg = `HTTP ${res.status}`;
+      const text = await res.text().catch(() => '');
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && parsed.error) msg = parsed.error;
+      } catch (_) {
+        if (text) msg += `: ${text.slice(0, 200)}`;
+      }
       throw new Error(msg);
     }
     if (res.status === 204) return null;

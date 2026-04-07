@@ -26,6 +26,10 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // ---------- helpers ----------
+// Express 4 doesn't auto-forward async handler rejections to the error
+// middleware. Wrap every async handler with ah() so rejections are caught.
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 // Normalize a date (string or Date) to the Monday of its week as YYYY-MM-DD
 function mondayOf(dateLike) {
   const d = new Date(dateLike + 'T00:00:00Z');
@@ -37,12 +41,12 @@ function mondayOf(dateLike) {
 }
 
 // ---------- clubs ----------
-app.get('/api/clubs', async (req, res) => {
+app.get('/api/clubs', ah(async (req, res) => {
   const { rows } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
   res.json(rows);
-});
+}));
 
-app.post('/api/clubs', async (req, res) => {
+app.post('/api/clubs', ah(async (req, res) => {
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
@@ -51,19 +55,19 @@ app.post('/api/clubs', async (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
-});
+}));
 
 // ---------- employees ----------
-app.get('/api/clubs/:id/employees', async (req, res) => {
+app.get('/api/clubs/:id/employees', ah(async (req, res) => {
   const clubId = Number(req.params.id);
   const { rows } = await pool.query(
     'SELECT id, club_id, name, team, archived, sort_order FROM employees WHERE club_id = $1 ORDER BY archived ASC, sort_order ASC, id ASC',
     [clubId]
   );
   res.json(rows);
-});
+}));
 
-app.post('/api/clubs/:id/employees', async (req, res) => {
+app.post('/api/clubs/:id/employees', ah(async (req, res) => {
   const clubId = Number(req.params.id);
   const { name, team } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
@@ -76,9 +80,9 @@ app.post('/api/clubs/:id/employees', async (req, res) => {
     [clubId, name, team || null, maxRows[0].next]
   );
   res.json(rows[0]);
-});
+}));
 
-app.patch('/api/employees/:id', async (req, res) => {
+app.patch('/api/employees/:id', ah(async (req, res) => {
   const empId = Number(req.params.id);
   const { rows: existing } = await pool.query('SELECT * FROM employees WHERE id = $1', [empId]);
   if (!existing[0]) return res.status(404).json({ error: 'not found' });
@@ -93,16 +97,16 @@ app.patch('/api/employees/:id', async (req, res) => {
     [name ?? null, team ?? null, typeof archived === 'boolean' ? archived : null, sort_order ?? null, empId]
   );
   res.json(rows[0]);
-});
+}));
 
-app.delete('/api/employees/:id', async (req, res) => {
+app.delete('/api/employees/:id', ah(async (req, res) => {
   const empId = Number(req.params.id);
   const { rows: existing } = await pool.query('SELECT * FROM employees WHERE id = $1', [empId]);
   if (!existing[0]) return res.status(404).json({ error: 'not found' });
   // Archive instead of hard-delete (preserves history)
   await pool.query('UPDATE employees SET archived = TRUE WHERE id = $1', [empId]);
   res.json({ ok: true });
-});
+}));
 
 // ---------- schedules ----------
 async function getOrCreateSchedule(clubId, weekStart) {
@@ -118,7 +122,7 @@ async function getOrCreateSchedule(clubId, weekStart) {
   return created[0];
 }
 
-app.get('/api/clubs/:id/schedule', async (req, res) => {
+app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   const clubId = Number(req.params.id);
   let weekStart;
   try { weekStart = mondayOf(req.query.week); }
@@ -152,9 +156,9 @@ app.get('/api/clubs/:id/schedule', async (req, res) => {
     employees,
     shifts: shiftMap,
   });
-});
+}));
 
-app.patch('/api/schedules/:id/cell', async (req, res) => {
+app.patch('/api/schedules/:id/cell', ah(async (req, res) => {
   const scheduleId = Number(req.params.id);
   const { employee_id, day_index, shift_text } = req.body || {};
   if (employee_id == null || day_index == null) return res.status(400).json({ error: 'employee_id and day_index required' });
@@ -173,16 +177,16 @@ app.patch('/api/schedules/:id/cell', async (req, res) => {
   );
   await pool.query('UPDATE schedules SET updated_at = NOW() WHERE id = $1', [scheduleId]);
   res.json({ ok: true });
-});
+}));
 
-app.patch('/api/schedules/:id/notes', async (req, res) => {
+app.patch('/api/schedules/:id/notes', ah(async (req, res) => {
   const scheduleId = Number(req.params.id);
   const { notes } = req.body || {};
   const { rows } = await pool.query('SELECT id FROM schedules WHERE id = $1', [scheduleId]);
   if (!rows[0]) return res.status(404).json({ error: 'schedule not found' });
   await pool.query('UPDATE schedules SET notes = $1, updated_at = NOW() WHERE id = $2', [notes || '', scheduleId]);
   res.json({ ok: true });
-});
+}));
 
 async function transitionSchedule(req, res, { from, to }) {
   const scheduleId = Number(req.params.id);
@@ -194,22 +198,38 @@ async function transitionSchedule(req, res, { from, to }) {
   res.json({ ok: true, status: to });
 }
 
-app.post('/api/schedules/:id/submit', (req, res) =>
-  transitionSchedule(req, res, { from: ['draft'], to: 'submitted' }));
-app.post('/api/schedules/:id/recall', (req, res) =>
-  transitionSchedule(req, res, { from: ['submitted'], to: 'draft' }));
-app.post('/api/schedules/:id/post', (req, res) =>
-  transitionSchedule(req, res, { from: ['submitted', 'draft'], to: 'posted' }));
-app.post('/api/schedules/:id/return', (req, res) =>
-  transitionSchedule(req, res, { from: ['submitted', 'posted'], to: 'draft' }));
+app.post('/api/schedules/:id/submit', ah((req, res) =>
+  transitionSchedule(req, res, { from: ['draft'], to: 'submitted' })));
+app.post('/api/schedules/:id/recall', ah((req, res) =>
+  transitionSchedule(req, res, { from: ['submitted'], to: 'draft' })));
+app.post('/api/schedules/:id/post', ah((req, res) =>
+  transitionSchedule(req, res, { from: ['submitted', 'draft'], to: 'posted' })));
+app.post('/api/schedules/:id/return', ah((req, res) =>
+  transitionSchedule(req, res, { from: ['submitted', 'posted'], to: 'draft' })));
 
 // ---------- health ----------
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+app.get('/api/health', ah(async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT NOW() AS now');
+    res.json({ ok: true, db: true, time: rows[0].now });
+  } catch (e) {
+    res.status(500).json({ ok: false, db: false, error: e.message });
+  }
+}));
 
 // ---------- SPA fallback ----------
 app.get('*', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ---------- JSON error handler ----------
+// Any uncaught error in a route handler ends up here. Always return JSON so the
+// frontend can surface a useful message instead of "Request failed".
+app.use((err, req, res, next) => {
+  console.error('[server] unhandled error', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: (err && err.message) || 'internal server error' });
 });
 
 app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
