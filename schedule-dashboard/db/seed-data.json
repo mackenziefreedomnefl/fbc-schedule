@@ -1,0 +1,44 @@
+{
+  "clubs": [
+    {
+      "name": "Jacksonville",
+      "employees": [
+        { "name": "Nick Tragemann", "team": "Main" },
+        { "name": "Alison Conner", "team": "Main" },
+        { "name": "Sergio Palacios", "team": "Main" },
+        { "name": "Sam Wentworth", "team": "Main" },
+        { "name": "Caroline Sirico", "team": "Main" },
+        { "name": "Branson Messer", "team": "Main" },
+        { "name": "William Krupsky", "team": "Main" },
+        { "name": "Davin Barbour", "team": "Main" },
+        { "name": "Delaney Holcomb", "team": "Main" },
+        { "name": "Aiden Rock", "team": "Main" },
+        { "name": "Dustyn Burd", "team": "Team 2" },
+        { "name": "Michael Mobley", "team": "Team 2" },
+        { "name": "Brandon Lanier", "team": "Team 2" },
+        { "name": "Tyler Boggess", "team": "Team 2" },
+        { "name": "Morgan Tragemann", "team": "Team 2" },
+        { "name": "Justice Bramer", "team": "Team 2" },
+        { "name": "Rain Bartenfelder", "team": "Team 2" },
+        { "name": "Mackenzie Shealy", "team": "Team 2" },
+        { "name": "Jaron Firesheets", "team": "Team 2" }
+      ]
+    },
+    {
+      "name": "St. Augustine",
+      "employees": [
+        { "name": "Sean Dressander", "team": "Main" },
+        { "name": "Gavin Carillo", "team": "Main" },
+        { "name": "Jaxin Gamber", "team": "Main" },
+        { "name": "Zoe Henley", "team": "Main" },
+        { "name": "Andrew Gibner", "team": "Main" },
+        { "name": "Michael Guillet", "team": "Main" },
+        { "name": "Dalton Hawley", "team": "Main" },
+        { "name": "Julia Catlett", "team": "Main" },
+        { "name": "Alexander Vida", "team": "Main" },
+        { "name": "Ryan Constantino", "team": "Main" },
+        { "name": "Jack Fant", "team": "Main" }
+      ]
+    }
+  ]
+}
