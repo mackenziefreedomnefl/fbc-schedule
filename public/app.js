@@ -4,19 +4,16 @@
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const state = {
-    me: null,
     clubs: [],
     currentClubId: null,
     weekStart: null,
     schedule: null,
     employees: [],
     shifts: {},
-    tab: 'schedule',
   };
 
   // -------- utils --------
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const el = (tag, props = {}, children = []) => {
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(props)) {
@@ -105,67 +102,12 @@
   }
   function closeModal() { $('#modal-root').innerHTML = ''; }
 
-  // -------- auth/bootstrap --------
+  // -------- bootstrap --------
   async function bootstrap() {
-    try {
-      state.me = await api('/api/me');
-      await renderMain();
-    } catch (_) {
-      renderLogin();
-    }
-  }
-
-  function renderLogin() {
-    $('#view-login').classList.remove('hidden');
-    $('#view-main').classList.add('hidden');
-    const form = $('#login-form');
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      $('#login-error').textContent = '';
-      const fd = new FormData(form);
-      try {
-        state.me = await api('/api/login', {
-          method: 'POST',
-          body: { email: fd.get('email'), password: fd.get('password') },
-        });
-        $('#view-login').classList.add('hidden');
-        await renderMain();
-      } catch (err) {
-        $('#login-error').textContent = err.message;
-      }
-    };
-  }
-
-  async function renderMain() {
-    $('#view-login').classList.add('hidden');
-    $('#view-main').classList.remove('hidden');
-    $('#user-email').textContent = `${state.me.email} (${state.me.role})`;
-
-    $('#btn-logout').onclick = async () => {
-      await api('/api/logout', { method: 'POST' });
-      state.me = null;
-      location.reload();
-    };
-    $('#btn-password').onclick = openChangePasswordModal;
-
-    // Tabs
-    const tabs = $('#tabs');
-    tabs.innerHTML = '';
-    if (state.me.role === 'admin') {
-      tabs.appendChild(el('button', { class: state.tab === 'schedule' ? 'active' : '', onclick: () => { state.tab = 'schedule'; renderMain(); } }, 'Schedule'));
-      tabs.appendChild(el('button', { class: state.tab === 'users' ? 'active' : '', onclick: () => { state.tab = 'users'; renderMain(); } }, 'Users'));
-    }
-
-    // Load clubs
     state.clubs = await api('/api/clubs');
     if (!state.currentClubId && state.clubs.length) state.currentClubId = state.clubs[0].id;
     if (!state.weekStart) state.weekStart = mondayOf(new Date());
-
-    if (state.tab === 'users' && state.me.role === 'admin') {
-      await renderUsersTab();
-    } else {
-      await renderScheduleTab();
-    }
+    await renderScheduleTab();
   }
 
   // -------- schedule tab --------
@@ -173,21 +115,22 @@
     const body = $('#main-body');
     body.innerHTML = '';
 
-    const toolbar = el('div', { class: 'toolbar' });
-    // Club picker (admin only)
-    if (state.me.role === 'admin') {
-      const select = el('select', {
-        onchange: async (e) => { state.currentClubId = Number(e.target.value); await loadSchedule(); renderScheduleTab(); },
-      });
-      state.clubs.forEach(c => {
-        const opt = el('option', { value: c.id }, c.name);
-        if (c.id === state.currentClubId) opt.setAttribute('selected', 'selected');
-        select.appendChild(opt);
-      });
-      toolbar.appendChild(el('label', {}, ['Club', select]));
-    } else {
-      toolbar.appendChild(el('div', { class: 'muted' }, state.clubs[0]?.name || ''));
+    if (!state.clubs.length) {
+      body.appendChild(el('div', { class: 'muted' }, 'No clubs yet.'));
+      return;
     }
+
+    const toolbar = el('div', { class: 'toolbar' });
+    // Club picker
+    const select = el('select', {
+      onchange: async (e) => { state.currentClubId = Number(e.target.value); await loadSchedule(); renderScheduleTab(); },
+    });
+    state.clubs.forEach(c => {
+      const opt = el('option', { value: c.id }, c.name);
+      if (c.id === state.currentClubId) opt.setAttribute('selected', 'selected');
+      select.appendChild(opt);
+    });
+    toolbar.appendChild(el('label', {}, ['Club', select]));
 
     // Week nav
     toolbar.appendChild(el('button', { onclick: async () => { state.weekStart = addDays(state.weekStart, -7); await loadSchedule(); renderScheduleTab(); } }, '← Prev week'));
@@ -212,36 +155,27 @@
     statusBar.appendChild(el('span', { class: `status-pill ${state.schedule.status}` }, state.schedule.status.toUpperCase()));
     statusBar.appendChild(el('div', { class: 'spacer' }));
 
-    const canManagerEdit = state.schedule.status === 'draft';
-    const isAdmin = state.me.role === 'admin';
-
-    if (state.me.role === 'manager') {
-      if (state.schedule.status === 'draft') {
-        statusBar.appendChild(el('button', { class: 'primary', onclick: () => transition('submit') }, 'Submit for review'));
-      } else if (state.schedule.status === 'submitted') {
-        statusBar.appendChild(el('button', { onclick: () => transition('recall') }, 'Recall'));
-      }
-    } else if (isAdmin) {
-      if (state.schedule.status === 'submitted' || state.schedule.status === 'draft') {
-        statusBar.appendChild(el('button', { class: 'primary', onclick: () => transition('post') }, 'Approve & Post'));
-      }
-      if (state.schedule.status === 'submitted' || state.schedule.status === 'posted') {
-        statusBar.appendChild(el('button', { onclick: () => transition('return') }, 'Return to draft'));
-      }
+    if (state.schedule.status === 'draft') {
+      statusBar.appendChild(el('button', { class: 'primary', onclick: () => transition('submit') }, 'Submit for review'));
+      statusBar.appendChild(el('button', { onclick: () => transition('post') }, 'Post'));
+    } else if (state.schedule.status === 'submitted') {
+      statusBar.appendChild(el('button', { class: 'primary', onclick: () => transition('post') }, 'Approve & Post'));
+      statusBar.appendChild(el('button', { onclick: () => transition('recall') }, 'Recall'));
+    } else if (state.schedule.status === 'posted') {
+      statusBar.appendChild(el('button', { onclick: () => transition('return') }, 'Return to draft'));
     }
     body.appendChild(statusBar);
 
     // Grid
-    body.appendChild(buildScheduleGrid(canManagerEdit || isAdmin));
+    body.appendChild(buildScheduleGrid(true));
 
     // Notes
     const notesWrap = el('div', { class: 'notes' });
     notesWrap.appendChild(el('label', {}, 'Notes'));
     const ta = el('textarea', {
-      placeholder: 'Notes for this week (visible to admin)…',
+      placeholder: 'Notes for this week…',
     });
     ta.value = state.schedule.notes || '';
-    ta.disabled = !(canManagerEdit || isAdmin);
     let notesTimer;
     ta.addEventListener('input', () => {
       clearTimeout(notesTimer);
@@ -427,120 +361,6 @@
 
     openModal(content);
     refresh();
-  }
-
-  // -------- users tab --------
-  async function renderUsersTab() {
-    const body = $('#main-body');
-    body.innerHTML = '';
-
-    body.appendChild(el('div', { class: 'toolbar' }, [
-      el('h2', { style: 'margin:0;' }, 'Users'),
-      el('div', { class: 'spacer' }),
-      el('button', { class: 'primary', onclick: openCreateUserModal }, '+ Create user'),
-    ]));
-
-    const users = await api('/api/users');
-    const table = el('table', { class: 'data-table' });
-    table.appendChild(el('thead', {}, el('tr', {}, [
-      el('th', {}, 'Email'), el('th', {}, 'Role'), el('th', {}, 'Club'), el('th', {}, 'Actions'),
-    ])));
-    const tbody = el('tbody');
-    users.forEach(u => {
-      const tr = el('tr');
-      tr.appendChild(el('td', {}, u.email));
-      tr.appendChild(el('td', {}, u.role));
-      tr.appendChild(el('td', {}, u.club_name || '—'));
-      const actions = el('td');
-      actions.appendChild(el('button', {
-        onclick: async () => {
-          const pw = prompt(`New password for ${u.email}:`);
-          if (!pw) return;
-          try { await api(`/api/users/${u.id}`, { method: 'PATCH', body: { password: pw } }); toast('Password reset'); }
-          catch (e) { toast(e.message, 'err'); }
-        },
-      }, 'Reset password'));
-      actions.appendChild(document.createTextNode(' '));
-      if (u.id !== state.me.id) {
-        actions.appendChild(el('button', {
-          class: 'danger',
-          onclick: async () => {
-            if (!confirm(`Delete ${u.email}?`)) return;
-            try { await api(`/api/users/${u.id}`, { method: 'DELETE' }); renderUsersTab(); }
-            catch (e) { toast(e.message, 'err'); }
-          },
-        }, 'Delete'));
-      }
-      tr.appendChild(actions);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    body.appendChild(table);
-  }
-
-  function openCreateUserModal() {
-    const content = el('div');
-    content.appendChild(el('h2', {}, 'Create user'));
-    const emailIn = el('input', { type: 'email', placeholder: 'email@example.com' });
-    const passIn = el('input', { type: 'text', placeholder: 'temporary password' });
-    const roleSel = el('select');
-    ['manager', 'admin'].forEach(r => roleSel.appendChild(el('option', { value: r }, r)));
-    const clubSel = el('select');
-    state.clubs.forEach(c => clubSel.appendChild(el('option', { value: c.id }, c.name)));
-
-    content.appendChild(el('label', {}, ['Email', emailIn]));
-    content.appendChild(el('label', {}, ['Password', passIn]));
-    content.appendChild(el('label', {}, ['Role', roleSel]));
-    const clubLabel = el('label', {}, ['Club', clubSel]);
-    content.appendChild(clubLabel);
-    roleSel.onchange = () => { clubLabel.style.display = roleSel.value === 'manager' ? '' : 'none'; };
-
-    content.appendChild(el('div', { class: 'modal-actions' }, [
-      el('button', { onclick: closeModal }, 'Cancel'),
-      el('button', {
-        class: 'primary',
-        onclick: async () => {
-          try {
-            await api('/api/users', {
-              method: 'POST',
-              body: {
-                email: emailIn.value.trim(),
-                password: passIn.value,
-                role: roleSel.value,
-                club_id: roleSel.value === 'manager' ? Number(clubSel.value) : null,
-              },
-            });
-            toast('Created');
-            closeModal();
-            renderUsersTab();
-          } catch (e) { toast(e.message, 'err'); }
-        },
-      }, 'Create'),
-    ]));
-    openModal(content);
-  }
-
-  function openChangePasswordModal() {
-    const content = el('div');
-    content.appendChild(el('h2', {}, 'Change password'));
-    const curIn = el('input', { type: 'password', placeholder: 'current password' });
-    const newIn = el('input', { type: 'password', placeholder: 'new password (min 6)' });
-    content.appendChild(el('label', {}, ['Current password', curIn]));
-    content.appendChild(el('label', {}, ['New password', newIn]));
-    content.appendChild(el('div', { class: 'modal-actions' }, [
-      el('button', { onclick: closeModal }, 'Cancel'),
-      el('button', {
-        class: 'primary',
-        onclick: async () => {
-          try {
-            await api('/api/me/password', { method: 'POST', body: { current_password: curIn.value, new_password: newIn.value } });
-            toast('Password changed');
-            closeModal();
-          } catch (e) { toast(e.message, 'err'); }
-        },
-      }, 'Update'),
-    ]));
-    openModal(content);
   }
 
   // kickoff
