@@ -46,6 +46,21 @@ async function main() {
       console.log('[migrate] clubs already present — skipping seed.');
     }
 
+    // Rename Jacksonville team labels (idempotent — no-op after first run).
+    const { rowCount: r1 } = await pool.query(
+      `UPDATE employees SET team = 'Julington Creek'
+        WHERE team = 'Main'
+          AND club_id = (SELECT id FROM clubs WHERE name = 'Jacksonville')`
+    );
+    const { rowCount: r2 } = await pool.query(
+      `UPDATE employees SET team = 'Jacksonville Beach'
+        WHERE team = 'Team 2'
+          AND club_id = (SELECT id FROM clubs WHERE name = 'Jacksonville')`
+    );
+    if (r1 || r2) {
+      console.log(`[migrate] renamed Jacksonville teams: Main→Julington Creek (${r1}), Team 2→Jacksonville Beach (${r2})`);
+    }
+
     console.log('[migrate] done.');
   } catch (err) {
     console.error('[migrate] failed:', err);

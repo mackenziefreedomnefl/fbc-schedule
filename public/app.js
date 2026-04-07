@@ -82,18 +82,23 @@
   function teamClass(team) {
     if (!team) return 'row-team-main';
     const t = team.toLowerCase();
-    if (t === 'main') return 'row-team-main';
-    if (t === 'team 2') return 'row-team-2';
+    if (t === 'main' || t === 'julington creek') return 'row-team-main';
+    if (t === 'team 2' || t === 'jacksonville beach') return 'row-team-2';
     if (t === 'shared') return 'row-team-shared';
     return 'row-team-main';
   }
   function teamBadgeClass(team) {
     if (!team) return 'team-main';
     const t = team.toLowerCase();
-    if (t === 'main') return 'team-main';
-    if (t === 'team 2') return 'team-2';
+    if (t === 'main' || t === 'julington creek') return 'team-main';
+    if (t === 'team 2' || t === 'jacksonville beach') return 'team-2';
     if (t === 'shared') return 'team-shared';
     return 'team-main';
+  }
+  function teamsForCurrentClub() {
+    const club = state.clubs.find(c => c.id === state.currentClubId);
+    if (club && club.name === 'Jacksonville') return ['Julington Creek', 'Jacksonville Beach', 'Shared'];
+    return ['Main', 'Shared'];
   }
 
   // -------- modal --------
@@ -235,8 +240,8 @@
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
     }
-    // team ordering: Main, Team 2, Shared, then others
-    const order = ['Main', 'Team 2', 'Shared'];
+    // team ordering
+    const order = ['Julington Creek', 'Main', 'Jacksonville Beach', 'Team 2', 'Shared'];
     const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
       const ai = order.indexOf(a); const bi = order.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
@@ -307,7 +312,10 @@
         const tr = el('tr');
         const nameInput = el('input', { value: e.name });
         const teamSelect = el('select');
-        ['Main', 'Team 2', 'Shared', ''].forEach(opt => {
+        const teamOpts = [...teamsForCurrentClub(), ''];
+        // Ensure the employee's current team is always in the list
+        if (e.team && !teamOpts.includes(e.team)) teamOpts.unshift(e.team);
+        teamOpts.forEach(opt => {
           const o = el('option', { value: opt }, opt || '(none)');
           if ((e.team || '') === opt) o.setAttribute('selected', 'selected');
           teamSelect.appendChild(o);
@@ -355,7 +363,7 @@
     const addWrap = el('div', { class: 'toolbar', style: 'margin-top:14px;' });
     const nameIn = el('input', { placeholder: 'New employee name' });
     const teamIn = el('select');
-    ['Main', 'Team 2', 'Shared'].forEach(t => teamIn.appendChild(el('option', { value: t }, t)));
+    teamsForCurrentClub().forEach(t => teamIn.appendChild(el('option', { value: t }, t)));
     addWrap.appendChild(nameIn);
     addWrap.appendChild(teamIn);
     addWrap.appendChild(el('button', {
