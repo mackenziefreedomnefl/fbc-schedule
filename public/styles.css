@@ -187,6 +187,47 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 .notes textarea { min-height: 80px; resize: vertical; }
 
+/* Staffing-by-location totals grid */
+.totals-wrap {
+  margin-top: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.totals-label {
+  padding: 10px 14px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.totals-table { width: 100%; border-collapse: collapse; }
+.totals-table th, .totals-table td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+.totals-table th {
+  background: var(--panel-2);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.totals-table td.totals-loc { min-width: 160px; font-weight: 600; }
+.totals-table td.totals-cell { min-width: 80px; padding: 0; text-align: center; }
+.totals-table td.totals-cell input {
+  width: 100%; border: none; background: transparent; color: var(--text);
+  padding: 8px 10px; border-radius: 0; text-align: center;
+}
+.totals-table td.totals-cell input:focus { background: rgba(76, 139, 245, 0.12); }
+
 /* Tables (users, roster) */
 .data-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; }

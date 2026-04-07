@@ -109,6 +109,17 @@ async function audit(user, action, clubId, team, details) {
   }
 }
 
+// Authoritative list of manual-total locations per club. The frontend uses
+// the same list; the server validates writes against it.
+const CLUB_LOCATIONS = {
+  'Jacksonville': ['Jacksonville Beach', 'Creek East', 'Creek West'],
+  'St. Augustine': ['Camachee Cove', 'Shipyard'],
+};
+
+function locationsForClubName(name) {
+  return CLUB_LOCATIONS[name] || [];
+}
+
 // Normalize a date (string or Date) to the Monday of its week as YYYY-MM-DD
 function mondayOf(dateLike) {
   const d = new Date(dateLike + 'T00:00:00Z');
@@ -388,6 +399,16 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     shiftMap[s.employee_id] = shiftMap[s.employee_id] || {};
     shiftMap[s.employee_id][s.day_index] = s.shift_text;
   }
+  const { rows: totals } = await pool.query(
+    'SELECT location, day_index, count_text FROM location_totals WHERE schedule_id = $1',
+    [schedule.id]
+  );
+  const totalsMap = {};
+  for (const t of totals) {
+    totalsMap[t.location] = totalsMap[t.location] || {};
+    totalsMap[t.location][t.day_index] = t.count_text;
+  }
+  const { rows: clubRow } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
   res.json({
     schedule: {
       id: schedule.id,
@@ -400,7 +421,48 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     },
     employees,
     shifts: shiftMap,
+    locations: locationsForClubName(clubRow[0] ? clubRow[0].name : ''),
+    totals: totalsMap,
   });
+}));
+
+app.patch('/api/schedules/:id/total', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const scheduleId = Number(req.params.id);
+  const { location, day_index, count_text } = req.body || {};
+  if (!location || day_index == null) return res.status(400).json({ error: 'location and day_index required' });
+  const { rows: schedRows } = await pool.query(
+    `SELECT s.id, s.club_id, s.week_start, c.name AS club_name
+       FROM schedules s JOIN clubs c ON c.id = s.club_id
+      WHERE s.id = $1`,
+    [scheduleId]
+  );
+  const sched = schedRows[0];
+  if (!sched) return res.status(404).json({ error: 'schedule not found' });
+  if (!canEditClub(user, sched.club_id)) {
+    return res.status(403).json({ error: 'you do not manage this club' });
+  }
+  const allowed = locationsForClubName(sched.club_name);
+  if (!allowed.includes(location)) {
+    return res.status(400).json({ error: 'unknown location for this club' });
+  }
+  await pool.query(
+    `INSERT INTO location_totals (schedule_id, location, day_index, count_text)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (schedule_id, location, day_index)
+     DO UPDATE SET count_text = EXCLUDED.count_text`,
+    [scheduleId, location, day_index, count_text || '']
+  );
+  await audit(user, 'total_edit', sched.club_id, null, {
+    location,
+    day_index,
+    week_start: sched.week_start instanceof Date
+      ? sched.week_start.toISOString().slice(0, 10)
+      : sched.week_start,
+    count_text: count_text || '',
+  });
+  res.json({ ok: true });
 }));
 
 app.patch('/api/schedules/:id/cell', ah(async (req, res) => {
