@@ -4,8 +4,7 @@
   "description": "Live weekly schedule dashboard for club managers with admin approval workflow",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "node db/migrate.js",
+    "start": "node db/migrate.js && node server.js",
     "migrate": "node db/migrate.js"
   },
   "engines": {
