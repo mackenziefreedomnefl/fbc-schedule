@@ -158,6 +158,8 @@ async function main() {
 
     // Seed club passwords from env vars. Only writes when the password_hash
     // column is null, unless FORCE_RESET_PASSWORDS=true is set.
+    // (Legacy: superseded by user-based auth, but left in place so existing
+    // env vars don't error out and so the column can be used as a fallback.)
     const forceReset = String(process.env.FORCE_RESET_PASSWORDS || '').toLowerCase() === 'true';
     for (const [clubName, envKey] of Object.entries(CLUB_PASSWORD_ENV)) {
       const pw = process.env[envKey];
@@ -169,6 +171,45 @@ async function main() {
       await pool.query('UPDATE clubs SET password_hash = $1 WHERE id = $2', [hash, clubRows[0].id]);
       console.log(`[migrate] set password for ${clubName} from ${envKey}`);
     }
+
+    // Bootstrap owner users from OWNER_EMAILS / OWNER_PASSWORD env vars.
+    // Each comma-separated email becomes an owner account. The password is
+    // only applied when the user is first created, OR when
+    // FORCE_RESET_PASSWORDS=true. Owners can change their own passwords later.
+    const ownerEmailsRaw = String(process.env.OWNER_EMAILS || '').trim();
+    const ownerPassword = process.env.OWNER_PASSWORD;
+    if (ownerEmailsRaw && ownerPassword) {
+      const ownerEmails = ownerEmailsRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      for (const email of ownerEmails) {
+        const { rows: existing } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (!existing[0]) {
+          const hash = await bcrypt.hash(ownerPassword, 10);
+          await pool.query(
+            "INSERT INTO users (email, password_hash, role, name) VALUES ($1, $2, 'owner', $3)",
+            [email, hash, email.split('@')[0]]
+          );
+          console.log(`[migrate] created owner ${email}`);
+        } else if (forceReset) {
+          const hash = await bcrypt.hash(ownerPassword, 10);
+          await pool.query(
+            "UPDATE users SET password_hash = $1, role = 'owner' WHERE id = $2",
+            [hash, existing[0].id]
+          );
+          console.log(`[migrate] reset owner password for ${email}`);
+        } else {
+          // Make sure existing user has owner role even if their password is unchanged
+          await pool.query("UPDATE users SET role = 'owner' WHERE id = $1 AND role <> 'owner'", [existing[0].id]);
+        }
+      }
+    } else if (ownerEmailsRaw && !ownerPassword) {
+      console.warn('[migrate] OWNER_EMAILS set but OWNER_PASSWORD missing — owners not seeded');
+    }
+
+    // Prune audit log entries older than 30 days.
+    const { rowCount: pruned } = await pool.query(
+      "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '30 days'"
+    );
+    if (pruned) console.log(`[migrate] pruned ${pruned} audit log entries older than 30 days`);
 
     console.log('[migrate] done.');
   } catch (err) {

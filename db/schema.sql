@@ -14,10 +14,36 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','manager')),
+  role TEXT NOT NULL CHECK (role IN ('owner','admin','manager')),
   club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL,
+  team TEXT,
+  name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add team/name columns for existing deployments
+ALTER TABLE users ADD COLUMN IF NOT EXISTS team TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;
+
+-- Allow 'owner' role on existing deployments
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check') THEN
+    ALTER TABLE users DROP CONSTRAINT users_role_check;
+  END IF;
+  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('owner','admin','manager'));
+END $$;
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_label TEXT NOT NULL,
+  action TEXT NOT NULL,
+  club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL,
+  team TEXT,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS employees (
   id SERIAL PRIMARY KEY,

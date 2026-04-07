@@ -211,6 +211,21 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   max-height: 90vh;
   overflow-y: auto;
 }
+.modal.modal-wide { max-width: 880px; }
+
+.activity-list { display: flex; flex-direction: column; gap: 6px; }
+.activity-row {
+  display: grid;
+  grid-template-columns: 90px 160px 1fr;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-when { color: var(--muted); }
+.activity-who { font-weight: 600; }
+.activity-what { color: var(--text); }
 .modal h2 { margin-top: 0; }
 .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
