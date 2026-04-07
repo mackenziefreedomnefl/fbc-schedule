@@ -2,7 +2,6 @@
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
 async function main() {
@@ -45,23 +44,6 @@ async function main() {
       }
     } else {
       console.log('[migrate] clubs already present — skipping seed.');
-    }
-
-    // Bootstrap admin
-    const { rows: adminRows } = await pool.query("SELECT COUNT(*)::int AS c FROM users WHERE role = 'admin'");
-    if (adminRows[0].c === 0) {
-      const email = process.env.ADMIN_EMAIL;
-      const password = process.env.ADMIN_PASSWORD;
-      if (email && password) {
-        console.log(`[migrate] creating bootstrap admin ${email}`);
-        const hash = await bcrypt.hash(password, 10);
-        await pool.query(
-          "INSERT INTO users (email, password_hash, role) VALUES ($1,$2,'admin') ON CONFLICT (email) DO NOTHING",
-          [email.toLowerCase(), hash]
-        );
-      } else {
-        console.warn('[migrate] no admin user exists and ADMIN_EMAIL/ADMIN_PASSWORD not set.');
-      }
     }
 
     console.log('[migrate] done.');
