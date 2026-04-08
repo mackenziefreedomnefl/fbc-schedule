@@ -294,29 +294,38 @@
 
   // Toggle row visibility based on state.filter. Runs against the live DOM
   // (no re-render) so the user keeps focus in the filter box while typing.
+  // Operates on every schedule table (Jacksonville, St. Augustine, etc).
   function applyNameFilter() {
     const q = (state.filter || '').trim().toLowerCase();
-    document.querySelectorAll('.schedule-table').forEach(table => {
-      const rows = Array.from(table.querySelectorAll('tbody tr'));
-      let anyVisibleInGroup = false;
-      let lastDivider = null;
-      const finalizeGroup = () => {
-        if (lastDivider) lastDivider.style.display = anyVisibleInGroup ? '' : 'none';
-      };
-      for (const row of rows) {
-        if (row.classList.contains('team-divider')) {
-          finalizeGroup();
-          lastDivider = row;
-          anyVisibleInGroup = false;
-          continue;
+
+    // Pass 1: show/hide every employee row across every schedule table.
+    document.querySelectorAll('.schedule-table tbody tr').forEach(row => {
+      if (row.classList.contains('team-divider')) return;
+      if (row.classList.contains('repeat-header')) return;
+      const name = (row.dataset.empName || row.getAttribute('data-emp-name') || '').toLowerCase();
+      if (!name) return;
+      const match = !q || name.includes(q);
+      row.style.display = match ? '' : 'none';
+    });
+
+    // Pass 2: hide team dividers (and the date header that follows them) if
+    // none of the rows in their group are visible.
+    document.querySelectorAll('.schedule-table tbody tr.team-divider').forEach(divider => {
+      let anyVisible = false;
+      let cursor = divider.nextElementSibling;
+      while (cursor && !cursor.classList.contains('team-divider')) {
+        const isEmp = cursor.dataset.empName || cursor.getAttribute('data-emp-name');
+        if (isEmp && cursor.style.display !== 'none') {
+          anyVisible = true;
+          break;
         }
-        const name = (row.getAttribute('data-emp-name') || '').toLowerCase();
-        if (!name) continue; // non-employee rows (shouldn't happen inside tbody but be safe)
-        const match = !q || name.includes(q);
-        row.style.display = match ? '' : 'none';
-        if (match) anyVisibleInGroup = true;
+        cursor = cursor.nextElementSibling;
       }
-      finalizeGroup();
+      divider.style.display = anyVisible ? '' : 'none';
+      const next = divider.nextElementSibling;
+      if (next && next.classList.contains('repeat-header')) {
+        next.style.display = anyVisible ? '' : 'none';
+      }
     });
   }
 
@@ -446,6 +455,7 @@
       for (const emp of groups.get(teamName)) {
         const editable = canEditEmployee(emp);
         const row = el('tr', { class: teamClass(emp.team), 'data-emp-name': emp.name });
+        row.dataset.empName = emp.name;
         row.appendChild(el('td', { class: 'name-cell' }, emp.name));
         for (let d = 0; d < 7; d++) {
           const td = el('td', { class: 'day-cell' });
