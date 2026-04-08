@@ -463,23 +463,32 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   }
   const { rows: clubRow } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
 
-  // Most recent edit to this club (any action) — powers the Last updated marker.
-  // Scoped to schedule-related actions so user/admin events don't show up.
-  const { rows: lastRows } = await pool.query(
+  // Recent edits to this club's schedule for this week — powers the
+  // Recent changes list visible to every viewer including anonymous staff.
+  // Includes cell, notes, total, and publish events matching the week, plus
+  // any employee roster edits from the last 7 days (rosters aren't week-
+  // scoped but staff still want to know when people are added/removed).
+  const { rows: recentRows } = await pool.query(
     `SELECT user_label, action, details, created_at
        FROM audit_log
       WHERE club_id = $1
-        AND action IN ('cell_edit','notes_edit','total_edit','employee_add','employee_update','employee_archive')
+        AND (
+          (action IN ('cell_edit','notes_edit','total_edit','schedule_published')
+            AND details->>'week_start' = $2)
+          OR (action IN ('employee_add','employee_update','employee_archive')
+            AND created_at > NOW() - INTERVAL '7 days')
+        )
       ORDER BY created_at DESC
-      LIMIT 1`,
-    [clubId]
+      LIMIT 15`,
+    [clubId, weekStart]
   );
-  const lastUpdate = lastRows[0] ? {
-    user_label: lastRows[0].user_label,
-    action: lastRows[0].action,
-    details: lastRows[0].details,
-    created_at: lastRows[0].created_at,
-  } : null;
+  const recentUpdates = recentRows.map(r => ({
+    user_label: r.user_label,
+    action: r.action,
+    details: r.details,
+    created_at: r.created_at,
+  }));
+  const lastUpdate = recentUpdates[0] || null;
 
   res.json({
     schedule: {
@@ -496,6 +505,7 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     locations: locationsForClubName(clubRow[0] ? clubRow[0].name : ''),
     totals: totalsMap,
     last_update: lastUpdate,
+    recent_updates: recentUpdates,
   });
 }));
 
