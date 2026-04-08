@@ -69,8 +69,8 @@ label input, label select, label textarea { margin-top: 4px; }
   padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
   position: sticky; top: 0; z-index: 10;
 }
-.brand { font-weight: 600; display: flex; align-items: center; gap: 10px; }
-.brand-logo { height: 34px; width: auto; display: block; }
+.brand { font-weight: 600; display: flex; align-items: center; gap: 12px; }
+.brand-logo { height: 44px; width: auto; display: block; border-radius: 4px; }
 .tabs { display: flex; gap: 6px; margin-left: 16px; }
 .tabs button { background: transparent; border-color: transparent; color: var(--muted); }
 .tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
@@ -335,6 +335,33 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   overflow-y: auto;
 }
 .modal.modal-wide { max-width: 880px; }
+
+/* Owner notification banner for unseen schedule publishes */
+.publish-banner {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: rgba(34, 197, 94, 0.10);
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.publish-banner-title {
+  font-weight: 700;
+  color: var(--ok);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.publish-banner-list { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text); }
+.publish-banner button { align-self: flex-start; }
+
+.activity-publish {
+  background: rgba(34, 197, 94, 0.08);
+  border-left: 3px solid var(--ok);
+  padding-left: 8px !important;
+}
 
 .activity-list { display: flex; flex-direction: column; gap: 6px; }
 .activity-row {

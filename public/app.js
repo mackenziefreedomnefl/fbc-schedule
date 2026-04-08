@@ -184,6 +184,9 @@
       state.clubs = clubs || [];
       state.weekStart = weekForTab(state.tab);
       await render();
+      if (isLoggedIn()) {
+        loadNotifications().catch(() => {});
+      }
     } catch (err) {
       const body = $('#main-body');
       if (body) {
@@ -193,6 +196,44 @@
       }
       console.error('[bootstrap] failed', err);
     }
+  }
+
+  // Fetch schedule_published notifications and show a banner for anything
+  // newer than the id stored in localStorage. Dismiss clears the banner and
+  // updates the stored id so the same notifications don't reappear.
+  async function loadNotifications() {
+    let entries;
+    try { entries = await api('/api/notifications'); }
+    catch (_) { return; }
+    if (!entries || !entries.length) return;
+
+    const lastSeen = Number(localStorage.getItem('fbc-last-publish-seen') || 0);
+    const unseen = entries.filter(e => Number(e.id) > lastSeen);
+    if (!unseen.length) return;
+
+    const body = $('#main-body');
+    if (!body) return;
+    const banner = el('div', { class: 'publish-banner' });
+    banner.appendChild(el('div', { class: 'publish-banner-title' },
+      `${unseen.length} new published schedule${unseen.length === 1 ? '' : 's'}`));
+    const list = el('div', { class: 'publish-banner-list' });
+    unseen.slice(0, 5).forEach(e => {
+      const d = e.details || {};
+      const team = d.team ? ` (${d.team})` : '';
+      const msg = d.message ? ` — "${d.message}"` : '';
+      const line = `${fmtRelative(e.created_at)} — ${e.user_label} published ${e.club_name || ''}${team} for week of ${d.week_start}${msg}`;
+      list.appendChild(el('div', {}, line));
+    });
+    banner.appendChild(list);
+    banner.appendChild(el('button', {
+      class: 'ghost',
+      onclick: () => {
+        const newest = unseen.reduce((m, e) => Math.max(m, Number(e.id)), 0);
+        localStorage.setItem('fbc-last-publish-seen', String(newest));
+        banner.remove();
+      },
+    }, 'Dismiss'));
+    body.insertBefore(banner, body.firstChild);
   }
 
   async function switchTab(tab) {
@@ -385,6 +426,10 @@
 
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
       header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
+      header.appendChild(el('button', {
+        class: 'primary',
+        onclick: () => openPublishModal(club, data),
+      }, 'Publish changes'));
     }
     wrap.appendChild(header);
 
@@ -818,36 +863,67 @@
   async function renderActivityTab(container) {
     container.appendChild(el('div', { class: 'muted', style: 'margin-bottom:10px;' },
       'Showing edits from the last 30 days. Newest first.'));
-    let entries;
-    try { entries = await api('/api/audit'); }
-    catch (e) { container.appendChild(el('div', { class: 'error' }, e.message)); return; }
-
-    if (!entries.length) {
-      container.appendChild(el('div', { class: 'muted' }, 'No activity yet.'));
-      return;
-    }
 
     const list = el('div', { class: 'activity-list' });
-    entries.forEach(e => {
-      const row = el('div', { class: 'activity-row' });
-      row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(e.created_at)));
-      row.appendChild(el('div', { class: 'activity-who muted' }, e.user_label));
-      row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry(e)));
-      list.appendChild(row);
-    });
     container.appendChild(list);
+
+    const footer = el('div', { class: 'activity-footer', style: 'margin-top:12px;' });
+    container.appendChild(footer);
+
+    const pageSize = 50;
+    let offset = 0;
+
+    const appendEntries = (entries) => {
+      entries.forEach(e => {
+        const row = el('div', { class: 'activity-row' + (e.action === 'schedule_published' ? ' activity-publish' : '') });
+        row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(e.created_at)));
+        row.appendChild(el('div', { class: 'activity-who muted' }, e.user_label));
+        row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry(e)));
+        list.appendChild(row);
+      });
+    };
+
+    const loadPage = async () => {
+      footer.innerHTML = '';
+      let result;
+      try { result = await api(`/api/audit?limit=${pageSize}&offset=${offset}`); }
+      catch (e) { footer.appendChild(el('div', { class: 'error' }, e.message)); return; }
+
+      const entries = Array.isArray(result) ? result : (result.entries || []);
+      const total = Array.isArray(result) ? entries.length : (result.total || entries.length);
+      if (offset === 0 && !entries.length) {
+        list.appendChild(el('div', { class: 'muted' }, 'No activity yet.'));
+        return;
+      }
+      appendEntries(entries);
+      offset += entries.length;
+      if (offset < total) {
+        footer.appendChild(el('button', {
+          onclick: loadPage,
+        }, `Load older activity (${total - offset} remaining)`));
+      } else if (offset > 0) {
+        footer.appendChild(el('div', { class: 'muted' }, `End of activity (${offset} total)`));
+      }
+    };
+
+    loadPage();
   }
 
   function describeAuditEntry(e) {
     const d = e.details || {};
-    const club = e.club_name || '';
+    const club = e.club_name || d.club_name || '';
     const team = e.team ? ` (${e.team})` : '';
     switch (e.action) {
       case 'cell_edit': {
-        const oldV = d.old_value ? `"${d.old_value}"` : '(empty)';
-        const newV = d.new_value ? `"${d.new_value}"` : '(empty)';
         const day = DAYS[d.day_index] || `day ${d.day_index}`;
-        return `edited ${d.employee_name}'s ${day} (${d.week_start}) shift: ${oldV} → ${newV}${team ? ' ' + team : ''}`;
+        const week = d.week_start ? ` (week of ${d.week_start})` : '';
+        if (!d.new_value && d.old_value) {
+          return `removed ${d.employee_name}'s ${day}${week} shift "${d.old_value}"${team}`;
+        }
+        if (d.new_value && !d.old_value) {
+          return `set ${d.employee_name}'s ${day}${week} shift to "${d.new_value}"${team}`;
+        }
+        return `changed ${d.employee_name}'s ${day}${week} shift: "${d.old_value || ''}" → "${d.new_value || ''}"${team}`;
       }
       case 'notes_edit':
         return `updated ${club} notes for week of ${d.week_start}`;
@@ -861,6 +937,10 @@
         return `updated ${d.employee_name} in ${club}${team}`;
       case 'employee_archive':
         return `archived ${d.employee_name} from ${club}${team}`;
+      case 'schedule_published': {
+        const msg = d.message ? ` — "${d.message}"` : '';
+        return `published the ${club || d.club_name || 'club'}${team} schedule for week of ${d.week_start}${msg}`;
+      }
       case 'user_create':
         return `created user ${d.email} (${d.role}${d.team ? ', ' + d.team : ''})`;
       case 'user_update':
@@ -870,6 +950,39 @@
       default:
         return e.action;
     }
+  }
+
+  // -------- publish modal --------
+  function openPublishModal(club, data) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Publish changes — ${club.name}`));
+    content.appendChild(el('p', { class: 'muted' },
+      `This will notify the owners that your schedule for the week of ${data.schedule.week_start} is ready.`));
+    const msgIn = el('textarea', { placeholder: 'Optional note to the owners (e.g. "all shifts confirmed")' });
+    msgIn.style.minHeight = '70px';
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(el('label', {}, ['Note (optional)', msgIn]));
+    content.appendChild(errDiv);
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'primary',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            await api(`/api/clubs/${club.id}/publish`, {
+              method: 'POST',
+              body: { week_start: data.schedule.week_start, message: msgIn.value.trim() },
+            });
+            closeModal();
+            toast('Published — owners will be notified');
+            await loadAllSchedules();
+            renderBody();
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Publish'),
+    ]));
+    openModal(content);
   }
 
   // -------- roster modal --------
