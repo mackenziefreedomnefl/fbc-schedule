@@ -266,6 +266,8 @@ app.delete('/api/users/:id', ah(async (req, res) => {
 app.get('/api/audit', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
   const { rows } = await pool.query(
     `SELECT a.id, a.user_id, a.user_label, a.action, a.club_id, a.team, a.details, a.created_at,
             c.name AS club_name
@@ -273,9 +275,60 @@ app.get('/api/audit', ah(async (req, res) => {
        LEFT JOIN clubs c ON c.id = a.club_id
       WHERE a.created_at >= NOW() - INTERVAL '30 days'
       ORDER BY a.created_at DESC
-      LIMIT 500`
+      LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  const { rows: countRows } = await pool.query(
+    "SELECT COUNT(*)::int AS total FROM audit_log WHERE created_at >= NOW() - INTERVAL '30 days'"
+  );
+  res.json({ entries: rows, total: countRows[0].total, limit, offset });
+}));
+
+// Recent schedule_published notifications for the signed-in user.
+// Owners see every publish; signed-in managers see publishes for their own
+// club (useful when switching between devices).
+app.get('/api/notifications', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const params = ['schedule_published'];
+  let where = "action = $1 AND created_at >= NOW() - INTERVAL '14 days'";
+  if (!isOwner(user) && user.club_id) {
+    params.push(user.club_id);
+    where += ' AND club_id = $2';
+  }
+  const { rows } = await pool.query(
+    `SELECT a.id, a.user_label, a.details, a.created_at, c.name AS club_name
+       FROM audit_log a
+       LEFT JOIN clubs c ON c.id = a.club_id
+      WHERE ${where}
+      ORDER BY a.created_at DESC
+      LIMIT 20`,
+    params
   );
   res.json(rows);
+}));
+
+// Manager publishes a finished schedule. Any user who can edit the club can
+// call it; we record a schedule_published audit entry which powers owner
+// notifications and shows up in the activity feed.
+app.post('/api/clubs/:id/publish', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const clubId = Number(req.params.id);
+  if (!canEditClub(user, clubId)) {
+    return res.status(403).json({ error: 'you do not manage this club' });
+  }
+  const { week_start, message } = req.body || {};
+  if (!week_start) return res.status(400).json({ error: 'week_start required' });
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
+  const clubName = clubRows[0] ? clubRows[0].name : '';
+  await audit(user, 'schedule_published', clubId, user.team || null, {
+    week_start,
+    club_name: clubName,
+    team: user.team || null,
+    message: (message || '').slice(0, 300),
+  });
+  res.json({ ok: true });
 }));
 
 // ---------- clubs ----------
