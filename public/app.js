@@ -11,6 +11,8 @@
   'use strict';
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const NOTICE_TEXT =
+    'All shifts are intended to be open to close unless otherwise posted. All shifts are subject to reservations and operational needs.';
   const state = {
     me: { id: null },                     // current user (or { id: null })
     clubs: [],                            // [{ id, name }]
@@ -246,6 +248,9 @@
       body.appendChild(el('div', { class: 'muted' }, 'No clubs yet.'));
       return;
     }
+
+    // Static notice that applies to every schedule
+    body.appendChild(el('div', { class: 'shift-notice' }, NOTICE_TEXT));
 
     // Big bold label so there's no ambiguity about which week is on screen
     body.appendChild(el('div', { class: 'week-heading' },
