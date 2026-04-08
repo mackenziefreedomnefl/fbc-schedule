@@ -358,3 +358,100 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.ok { border-color: var(--ok); }
 .toast.err { border-color: var(--danger); }
+
+/* ---------- Mobile ---------- */
+@media (max-width: 768px) {
+  main { padding: 12px; }
+
+  /* Topbar wraps; user chip goes to its own row */
+  .topbar {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .brand { font-size: 15px; }
+  .user-chip {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .user-chip span { width: 100%; font-size: 12px; }
+  .user-chip button { padding: 6px 10px; font-size: 13px; }
+
+  .shift-notice { font-size: 12px; padding: 8px 10px; }
+  .week-heading { font-size: 20px; }
+
+  /* Week tabs + filter stack */
+  .week-tabs { flex-wrap: wrap; gap: 6px; }
+  .week-tab { padding: 6px 12px; font-size: 13px; }
+  .week-tabs-range { width: 100%; margin-left: 0; order: 3; }
+  .name-filter {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    order: 4;
+  }
+
+  /* Horizontal scroll for the schedule and totals tables, with a sticky
+     employee name column so you can scroll days and still see who's who */
+  .schedule-wrap, .totals-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .schedule-table { font-size: 12px; }
+  .schedule-table th, .schedule-table td { padding: 4px 6px; }
+  .schedule-table td.name-cell,
+  .schedule-table th:first-child {
+    min-width: 120px;
+    position: sticky;
+    left: 0;
+    background: var(--panel);
+    z-index: 2;
+  }
+  .schedule-table tr.row-team-main td.name-cell { background: #151c2a; }
+  .schedule-table tr.row-team-2 td.name-cell   { background: #1c1829; }
+  .schedule-table tr.row-team-shared td.name-cell { background: #142319; }
+  .schedule-table td.day-cell { min-width: 88px; }
+  .schedule-table td.day-cell input {
+    padding: 6px 8px;
+    /* 16px prevents iOS Safari from zooming in on focus */
+    font-size: 16px;
+  }
+  .schedule-table .day-readonly { font-size: 13px; padding: 6px 8px; }
+
+  .totals-table td.totals-loc {
+    min-width: 120px;
+    position: sticky;
+    left: 0;
+    background: var(--panel);
+    z-index: 2;
+  }
+  .totals-table td.totals-cell { min-width: 70px; }
+  .totals-table td.totals-cell input { font-size: 16px; padding: 6px 8px; }
+
+  /* Modals take up most of the screen on phones */
+  .modal-backdrop { padding: 8px; }
+  .modal {
+    max-width: 100%;
+    padding: 16px;
+    border-radius: 10px;
+  }
+  .modal.modal-wide { max-width: 100%; }
+  .modal h2 { font-size: 18px; }
+  .modal input, .modal select, .modal textarea { font-size: 16px; }
+
+  /* Activity log reshaped into a stacked card */
+  .activity-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+    font-size: 12px;
+  }
+  .activity-when { order: 1; }
+  .activity-who { order: 2; }
+  .activity-what { order: 3; }
+
+  .notes textarea { font-size: 16px; }
+  .data-table { font-size: 12px; }
+  .data-table th, .data-table td { padding: 6px 8px; }
+}
