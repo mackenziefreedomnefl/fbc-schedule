@@ -296,6 +296,26 @@ app.get('/api/notifications', ah(async (req, res) => {
   res.json(rows);
 }));
 
+// Public shift notice, stored in app_state so owners can edit it from the UI.
+app.get('/api/notice', ah(async (req, res) => {
+  const { rows } = await pool.query("SELECT value FROM app_state WHERE key = 'shift_notice'");
+  res.json({ text: rows[0] ? rows[0].value : '' });
+}));
+
+app.put('/api/notice', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { text } = req.body || {};
+  const value = (text || '').slice(0, 2000);
+  await pool.query(
+    `INSERT INTO app_state (key, value) VALUES ('shift_notice', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [value]
+  );
+  await audit(user, 'notice_edit', null, null, { preview: value.slice(0, 80) });
+  res.json({ ok: true, text: value });
+}));
+
 // Manager publishes a finished schedule. Any user who can edit the club can
 // call it; we record a schedule_published audit entry which powers owner
 // notifications and shows up in the activity feed.

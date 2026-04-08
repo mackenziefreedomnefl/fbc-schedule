@@ -11,17 +11,35 @@
   'use strict';
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const NOTICE_TEXT =
-    'All shifts are intended to be open to close unless otherwise posted. All shifts are subject to reservations and operational needs.';
+  // Default shift notice shown before the custom one has loaded or if it's
+  // blank. Owners can edit the stored text via the UI.
+  const DEFAULT_NOTICE_TEXT =
+    'All shifts are intended to be open to close unless otherwise posted. All shifts are subject to reservations and operational needs. Shift start times are posted the evening before the shift in dock slack channels.';
+  let NOTICE_TEXT = DEFAULT_NOTICE_TEXT;
+  // Managers can plan up to three weeks in advance: this week, next week,
+  // and the week after next. These keys are used in state.tab and as the
+  // keys in state.weekData.
+  const WEEK_KEYS = ['current', 'next', 'week3'];
+  const WEEK_LABELS = {
+    current: 'This week',
+    next: 'Next week',
+    week3: 'Week after next',
+  };
+  const WEEK_HEADINGS = {
+    current: 'Current Work Week',
+    next: 'Next Work Week',
+    week3: 'Week After Next',
+  };
+
   const state = {
     me: { id: null },                     // current user (or { id: null })
     clubs: [],                            // [{ id, name }]
-    tab: 'current',                       // 'current' | 'next' (signed-in only)
+    tab: 'current',                       // one of WEEK_KEYS (signed-in only)
     weekStart: null,                      // YYYY-MM-DD derived from tab
     // Loaded schedules keyed by week then club. For signed-in users only the
-    // active tab's week is filled; for anonymous staff both weeks are loaded
-    // so both can be rendered stacked.
-    weekData: { current: {}, next: {} },
+    // active tab's week is filled; for anonymous staff all configured weeks
+    // are loaded so every week can be rendered stacked.
+    weekData: { current: {}, next: {}, week3: {} },
   };
 
   // -------- dom helpers --------
@@ -157,15 +175,21 @@
   // -------- bootstrap --------
   function weekForTab(tab) {
     const thisWeek = mondayOf(new Date());
+    if (tab === 'week3') return addDays(thisWeek, 14);
     if (tab === 'next') return addDays(thisWeek, 7);
     return thisWeek;
   }
 
   async function bootstrap() {
     try {
-      const [me, clubs] = await Promise.all([api('/api/me'), api('/api/clubs')]);
+      const [me, clubs, notice] = await Promise.all([
+        api('/api/me'),
+        api('/api/clubs'),
+        api('/api/notice').catch(() => ({ text: '' })),
+      ]);
       state.me = me || { id: null };
       state.clubs = clubs || [];
+      if (notice && notice.text) NOTICE_TEXT = notice.text;
       state.weekStart = weekForTab(state.tab);
       await render();
       if (isLoggedIn()) {
@@ -233,14 +257,12 @@
   // reflects the same week because switchTab re-renders the whole body.
   function buildWeekTabs() {
     const tabs = el('div', { class: 'week-tabs' });
-    tabs.appendChild(el('button', {
-      class: 'week-tab' + (state.tab === 'current' ? ' active' : ''),
-      onclick: () => switchTab('current'),
-    }, 'This week'));
-    tabs.appendChild(el('button', {
-      class: 'week-tab' + (state.tab === 'next' ? ' active' : ''),
-      onclick: () => switchTab('next'),
-    }, 'Next week'));
+    WEEK_KEYS.forEach(key => {
+      tabs.appendChild(el('button', {
+        class: 'week-tab' + (state.tab === key ? ' active' : ''),
+        onclick: () => switchTab(key),
+      }, WEEK_LABELS[key]));
+    });
     tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
     return tabs;
   }
@@ -277,10 +299,13 @@
   }
 
   async function loadAllSchedules() {
-    // Anonymous staff see both weeks stacked, so we need to fetch both.
-    // Signed-in managers/owners use tabs so we only need the active week.
-    const weeksToLoad = isLoggedIn() ? [state.tab] : ['current', 'next'];
-    state.weekData = { current: {}, next: {} };
+    // Anonymous staff see every configured week stacked, so we fetch all of
+    // them. Signed-in managers/owners use tabs so we only fetch the active
+    // week to keep the request count down.
+    const weeksToLoad = isLoggedIn() ? [state.tab] : WEEK_KEYS.slice();
+    const empty = {};
+    WEEK_KEYS.forEach(k => { empty[k] = {}; });
+    state.weekData = empty;
     for (const weekKey of weeksToLoad) {
       const weekStart = weekForTab(weekKey);
       const results = await Promise.all(state.clubs.map(c =>
@@ -302,7 +327,15 @@
     }
 
     // Static notice that applies to every schedule
-    body.appendChild(el('div', { class: 'shift-notice' }, NOTICE_TEXT));
+    const notice = el('div', { class: 'shift-notice' });
+    notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
+    if (isOwner()) {
+      notice.appendChild(el('button', {
+        class: 'ghost shift-notice-edit',
+        onclick: openNoticeModal,
+      }, 'Edit'));
+    }
+    body.appendChild(notice);
 
     if (isLoggedIn()) {
       // Manager / owner view: tabs flip the whole page between current
@@ -315,14 +348,12 @@
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
       });
     } else {
-      // Anonymous staff view: no tabs. Current week for every club at the
-      // top, then next week for every club below it. All four schedules
-      // visible on one scroll.
-      state.clubs.forEach((club, idx) => {
-        body.appendChild(renderClubSection(club, 'current', idx === 0));
-      });
-      state.clubs.forEach((club, idx) => {
-        body.appendChild(renderClubSection(club, 'next', idx === 0));
+      // Anonymous staff view: no tabs. Every week stacked in order — this
+      // week's clubs first, then next week's, then week after next's.
+      WEEK_KEYS.forEach(weekKey => {
+        state.clubs.forEach((club, idx) => {
+          body.appendChild(renderClubSection(club, weekKey, idx === 0));
+        });
       });
     }
 
@@ -377,7 +408,7 @@
     // duplicate heading.
     if (showWeekHeading) {
       wrap.appendChild(el('div', { class: 'club-week-heading' },
-        weekKey === 'next' ? 'Next Work Week' : 'Current Work Week'));
+        WEEK_HEADINGS[weekKey] || 'Current Work Week'));
     }
 
     const header = el('div', { class: 'club-header' });
@@ -699,6 +730,39 @@
           } catch (e) { errDiv.textContent = e.message; }
         },
       }, 'Update'),
+    ]));
+    openModal(content);
+  }
+
+  function openNoticeModal() {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Edit shift notice'));
+    content.appendChild(el('p', { class: 'muted' },
+      'This message is shown at the top of the schedule for everyone, including dock staff.'));
+    const ta = el('textarea', {});
+    ta.style.minHeight = '130px';
+    ta.value = NOTICE_TEXT || '';
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(el('label', {}, ['Message', ta]));
+    content.appendChild(errDiv);
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'primary',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            const result = await api('/api/notice', {
+              method: 'PUT',
+              body: { text: ta.value },
+            });
+            NOTICE_TEXT = (result && result.text) || ta.value;
+            closeModal();
+            renderBody();
+            toast('Notice updated');
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Save'),
     ]));
     openModal(content);
   }

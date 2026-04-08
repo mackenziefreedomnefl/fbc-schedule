@@ -87,7 +87,12 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   border-radius: 8px;
   font-size: 13px;
   color: var(--text);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
+.shift-notice-text { flex: 1; white-space: pre-wrap; }
+.shift-notice-edit { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
 
 /* Big "Current work week" / "Next work week" heading above the tabs */
 .week-heading {
