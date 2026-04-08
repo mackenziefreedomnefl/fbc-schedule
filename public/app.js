@@ -370,9 +370,7 @@
     const editableNotes = canEditClub(club.id);
     const notesWrap = el('div', { class: 'notes' });
     notesWrap.appendChild(el('label', {}, 'Notes'));
-    const ta = el('textarea', {
-      placeholder: editableNotes ? 'Notes for this week…' : '(read-only)',
-    });
+    const ta = el('textarea', {});
     ta.value = data.schedule.notes || '';
     ta.disabled = !editableNotes;
     if (editableNotes) {
