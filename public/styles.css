@@ -75,7 +75,26 @@ label input, label select, label textarea { margin-top: 4px; }
 .tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
 .user-chip { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 
-main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+main { padding: 20px; max-width: 1400px; margin: 0 auto; position: relative; }
+
+/* Big "NEXT WEEK" watermark behind the schedule when the user is on the
+   next-week tab, so they can't confuse it with the current week */
+main.is-next-week::before {
+  content: 'NEXT WEEK';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-22deg);
+  font-size: 22vw;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: rgba(245, 158, 11, 0.10);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 0;
+  user-select: none;
+}
+main.is-next-week > * { position: relative; z-index: 1; }
 
 /* Static shift notice above the week heading */
 .shift-notice {

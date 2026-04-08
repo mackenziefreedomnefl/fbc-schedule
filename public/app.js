@@ -244,6 +244,10 @@
     const body = $('#main-body');
     body.innerHTML = '';
 
+    // Apply / clear the next-week watermark on the body so it shows behind
+    // the schedule whenever the user is viewing a tab other than this week.
+    body.classList.toggle('is-next-week', state.tab === 'next');
+
     if (!state.clubs.length) {
       body.appendChild(el('div', { class: 'muted' }, 'No clubs yet.'));
       return;
