@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48" role="img" aria-label="FBC">
+  <rect x="0" y="0" width="160" height="48" rx="8" fill="#0f1216" stroke="#4c8bf5" stroke-width="2"/>
+  <circle cx="24" cy="24" r="14" fill="#4c8bf5"/>
+  <text x="24" y="29" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="14" font-weight="800" fill="#ffffff">FBC</text>
+  <text x="46" y="21" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" font-weight="700" fill="#e6e8ee">Freedom Boat Club</text>
+  <text x="46" y="36" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" font-weight="600" fill="#8b94a7">Northeast Florida</text>
+</svg>

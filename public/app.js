@@ -16,9 +16,12 @@
   const state = {
     me: { id: null },                     // current user (or { id: null })
     clubs: [],                            // [{ id, name }]
-    tab: 'current',                       // 'current' | 'next'
-    weekStart: null,                      // YYYY-MM-DD derived from tab (or nav)
-    clubData: {},                         // clubId -> { schedule, employees, shifts }
+    tab: 'current',                       // 'current' | 'next' (signed-in only)
+    weekStart: null,                      // YYYY-MM-DD derived from tab
+    // Loaded schedules keyed by week then club. For signed-in users only the
+    // active tab's week is filled; for anonymous staff both weeks are loaded
+    // so both can be rendered stacked.
+    weekData: { current: {}, next: {} },
   };
 
   // -------- dom helpers --------
@@ -199,6 +202,24 @@
     renderBody();
   }
 
+  // Builds a This week / Next week tab strip bound to the shared state.tab.
+  // Used both in the top-level tab row and inside each club header so the
+  // user can flip weeks from anywhere. Every tab strip on the page always
+  // reflects the same week because switchTab re-renders the whole body.
+  function buildWeekTabs() {
+    const tabs = el('div', { class: 'week-tabs' });
+    tabs.appendChild(el('button', {
+      class: 'week-tab' + (state.tab === 'current' ? ' active' : ''),
+      onclick: () => switchTab('current'),
+    }, 'This week'));
+    tabs.appendChild(el('button', {
+      class: 'week-tab' + (state.tab === 'next' ? ' active' : ''),
+      onclick: () => switchTab('next'),
+    }, 'Next week'));
+    tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
+    return tabs;
+  }
+
   async function render() {
     renderTopbar();
     await loadAllSchedules();
@@ -231,22 +252,24 @@
   }
 
   async function loadAllSchedules() {
-    const results = await Promise.all(state.clubs.map(c =>
-      api(`/api/clubs/${c.id}/schedule?week=${state.weekStart}`).then(data => ({ clubId: c.id, data }))
-    ));
-    state.clubData = {};
-    for (const { clubId, data } of results) {
-      state.clubData[clubId] = data;
+    // Anonymous staff see both weeks stacked, so we need to fetch both.
+    // Signed-in managers/owners use tabs so we only need the active week.
+    const weeksToLoad = isLoggedIn() ? [state.tab] : ['current', 'next'];
+    state.weekData = { current: {}, next: {} };
+    for (const weekKey of weeksToLoad) {
+      const weekStart = weekForTab(weekKey);
+      const results = await Promise.all(state.clubs.map(c =>
+        api(`/api/clubs/${c.id}/schedule?week=${weekStart}`).then(data => ({ clubId: c.id, data }))
+      ));
+      for (const { clubId, data } of results) {
+        state.weekData[weekKey][clubId] = data;
+      }
     }
   }
 
   function renderBody() {
     const body = $('#main-body');
     body.innerHTML = '';
-
-    // Apply / clear the next-week watermark on the body so it shows behind
-    // the schedule whenever the user is viewing a tab other than this week.
-    body.classList.toggle('is-next-week', state.tab === 'next');
 
     if (!state.clubs.length) {
       body.appendChild(el('div', { class: 'muted' }, 'No clubs yet.'));
@@ -256,22 +279,23 @@
     // Static notice that applies to every schedule
     body.appendChild(el('div', { class: 'shift-notice' }, NOTICE_TEXT));
 
-    // Week tabs: This week / Next week
-    const tabs = el('div', { class: 'week-tabs' });
-    tabs.appendChild(el('button', {
-      class: 'week-tab' + (state.tab === 'current' ? ' active' : ''),
-      onclick: () => switchTab('current'),
-    }, 'This week'));
-    tabs.appendChild(el('button', {
-      class: 'week-tab' + (state.tab === 'next' ? ' active' : ''),
-      onclick: () => switchTab('next'),
-    }, 'Next week'));
-    tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
-
-    body.appendChild(tabs);
-
-    for (const club of state.clubs) {
-      body.appendChild(renderClubSection(club));
+    if (isLoggedIn()) {
+      // Manager / owner view: tabs flip the whole page between current
+      // and next week, one week visible at a time.
+      body.appendChild(buildWeekTabs());
+      for (const club of state.clubs) {
+        body.appendChild(renderClubSection(club, state.tab));
+      }
+    } else {
+      // Anonymous staff view: no tabs. Current week for every club at the
+      // top, then next week for every club below it. All four schedules
+      // visible on one scroll.
+      for (const club of state.clubs) {
+        body.appendChild(renderClubSection(club, 'current'));
+      }
+      for (const club of state.clubs) {
+        body.appendChild(renderClubSection(club, 'next'));
+      }
     }
 
     // Apply any existing filter after new rows are rendered
@@ -315,14 +339,15 @@
     });
   }
 
-  function renderClubSection(club) {
-    const data = state.clubData[club.id];
+  function renderClubSection(club, weekKey) {
+    weekKey = weekKey || 'current';
+    const data = (state.weekData[weekKey] || {})[club.id];
     const wrap = el('section', { class: 'club-section' });
 
     // Repeat the Current/Next Work Week label above every club so the
     // context is obvious when scrolling between Jacksonville and St. Augustine.
     wrap.appendChild(el('div', { class: 'club-week-heading' },
-      state.tab === 'next' ? 'Next Work Week' : 'Current Work Week'));
+      weekKey === 'next' ? 'Next Work Week' : 'Current Work Week'));
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
@@ -414,6 +439,7 @@
   function buildScheduleGrid(club, data) {
     const wrap = el('div', { class: 'schedule-wrap' });
     const table = el('table', { class: 'schedule-table' });
+    const weekStart = data.schedule.week_start;
 
     // Helper to build a header row (used both in thead and repeated between
     // team groups so the date columns stay labeled for Jacksonville Beach).
@@ -421,7 +447,7 @@
       const row = el('tr');
       row.appendChild(el('th', {}, labelText || 'Employee'));
       DAYS.forEach((d, i) => {
-        const date = new Date(state.weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
+        const date = new Date(weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
         row.appendChild(el('th', {}, `${d} ${date.getMonth() + 1}/${date.getDate()}`));
       });
       return row;
@@ -513,6 +539,7 @@
     if (!locations.length) return el('div');
 
     const editable = canEditClub(club.id);
+    const weekStart = data.schedule.week_start;
     const wrap = el('div', { class: 'totals-wrap' });
     wrap.appendChild(el('div', { class: 'totals-label' }, 'Staffing by location'));
 
@@ -521,7 +548,7 @@
     const hrow = el('tr');
     hrow.appendChild(el('th', {}, 'Location'));
     DAYS.forEach((d, i) => {
-      const date = new Date(state.weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
+      const date = new Date(weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
       hrow.appendChild(el('th', {}, `${d} ${date.getMonth() + 1}/${date.getDate()}`));
     });
     thead.appendChild(hrow);
