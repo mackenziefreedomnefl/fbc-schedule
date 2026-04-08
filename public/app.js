@@ -438,23 +438,51 @@
       return wrap;
     }
 
-    // Last updated marker (plain English summary of the most recent edit).
-    // Sourced from the audit log via the schedule API response.
-    if (data.last_update) {
-      const lu = data.last_update;
-      wrap.appendChild(el('div', { class: 'last-update' }, [
-        el('span', { class: 'muted' }, 'Last updated '),
-        el('span', {}, fmtRelative(lu.created_at)),
-        el('span', { class: 'muted' }, ' by '),
-        el('span', {}, lu.user_label || 'unknown'),
-        el('span', { class: 'muted' }, ' — '),
-        el('span', {}, describeAuditEntry({
-          action: lu.action,
-          details: lu.details || {},
+    // Recent changes panel — visible to everyone including anonymous staff
+    // so they can see what a manager changed since they last looked. Shows
+    // the most recent 5 inline and expands to show the rest on click.
+    const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
+    if (updates.length) {
+      const panel = el('div', { class: 'recent-updates' });
+      panel.appendChild(el('div', { class: 'recent-updates-title muted' },
+        `Recent changes (${updates.length})`));
+
+      const listEl = el('div', { class: 'recent-updates-list' });
+      const renderRow = (u) => {
+        const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' ? ' recent-publish' : '') });
+        row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
+        row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
+        row.appendChild(el('span', {}, describeAuditEntry({
+          action: u.action,
+          details: u.details || {},
           club_name: club.name,
-          team: (lu.details || {}).team || null,
-        })),
-      ]));
+          team: (u.details || {}).team || null,
+        })));
+        return row;
+      };
+
+      const initialCount = 5;
+      updates.slice(0, initialCount).forEach(u => listEl.appendChild(renderRow(u)));
+      panel.appendChild(listEl);
+
+      if (updates.length > initialCount) {
+        const toggle = el('button', { class: 'ghost', style: 'align-self:flex-start;' });
+        let expanded = false;
+        toggle.textContent = `Show ${updates.length - initialCount} more`;
+        toggle.addEventListener('click', () => {
+          expanded = !expanded;
+          if (expanded) {
+            updates.slice(initialCount).forEach(u => listEl.appendChild(renderRow(u)));
+            toggle.textContent = 'Show fewer';
+          } else {
+            while (listEl.children.length > initialCount) listEl.removeChild(listEl.lastChild);
+            toggle.textContent = `Show ${updates.length - initialCount} more`;
+          }
+        });
+        panel.appendChild(toggle);
+      }
+
+      wrap.appendChild(panel);
     }
 
     wrap.appendChild(buildScheduleGrid(club, data));
