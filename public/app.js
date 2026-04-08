@@ -394,14 +394,20 @@
     const wrap = el('div', { class: 'schedule-wrap' });
     const table = el('table', { class: 'schedule-table' });
 
+    // Helper to build a header row (used both in thead and repeated between
+    // team groups so the date columns stay labeled for Jacksonville Beach).
+    const buildHeaderRow = (labelText) => {
+      const row = el('tr');
+      row.appendChild(el('th', {}, labelText || 'Employee'));
+      DAYS.forEach((d, i) => {
+        const date = new Date(state.weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
+        row.appendChild(el('th', {}, `${d} ${date.getMonth() + 1}/${date.getDate()}`));
+      });
+      return row;
+    };
+
     const thead = el('thead');
-    const headerRow = el('tr');
-    headerRow.appendChild(el('th', {}, 'Employee'));
-    DAYS.forEach((d, i) => {
-      const date = new Date(state.weekStart + 'T00:00:00'); date.setDate(date.getDate() + i);
-      headerRow.appendChild(el('th', {}, `${d} ${date.getMonth() + 1}/${date.getDate()}`));
-    });
-    thead.appendChild(headerRow);
+    thead.appendChild(buildHeaderRow('Employee'));
     table.appendChild(thead);
 
     const tbody = el('tbody');
@@ -422,11 +428,19 @@
     // Only draw team divider rows when there is more than one group.
     const showDividers = sortedKeys.length > 1;
 
-    sortedKeys.forEach((teamName) => {
+    sortedKeys.forEach((teamName, idx) => {
       if (showDividers && teamName) {
         const divider = el('tr', { class: 'team-divider' });
         divider.appendChild(el('td', { colspan: 8 }, teamName));
         tbody.appendChild(divider);
+        // Between team groups, repeat the date header row so the columns
+        // stay labeled when a team (e.g. Jacksonville Beach) starts partway
+        // down the table
+        if (idx > 0) {
+          const repeatHeader = buildHeaderRow('');
+          repeatHeader.classList.add('repeat-header');
+          tbody.appendChild(repeatHeader);
+        }
       }
 
       for (const emp of groups.get(teamName)) {
