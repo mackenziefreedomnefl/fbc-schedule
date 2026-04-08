@@ -283,19 +283,22 @@
       // Manager / owner view: tabs flip the whole page between current
       // and next week, one week visible at a time.
       body.appendChild(buildWeekTabs());
-      for (const club of state.clubs) {
-        body.appendChild(renderClubSection(club, state.tab));
-      }
+      state.clubs.forEach((club, idx) => {
+        // Only the first club in the week group shows the week heading,
+        // so Jacksonville gets "Current/Next Work Week" and St. Augustine
+        // sits right below it without a duplicate label.
+        body.appendChild(renderClubSection(club, state.tab, idx === 0));
+      });
     } else {
       // Anonymous staff view: no tabs. Current week for every club at the
       // top, then next week for every club below it. All four schedules
       // visible on one scroll.
-      for (const club of state.clubs) {
-        body.appendChild(renderClubSection(club, 'current'));
-      }
-      for (const club of state.clubs) {
-        body.appendChild(renderClubSection(club, 'next'));
-      }
+      state.clubs.forEach((club, idx) => {
+        body.appendChild(renderClubSection(club, 'current', idx === 0));
+      });
+      state.clubs.forEach((club, idx) => {
+        body.appendChild(renderClubSection(club, 'next', idx === 0));
+      });
     }
 
     // Apply any existing filter after new rows are rendered
@@ -339,15 +342,18 @@
     });
   }
 
-  function renderClubSection(club, weekKey) {
+  function renderClubSection(club, weekKey, showWeekHeading) {
     weekKey = weekKey || 'current';
     const data = (state.weekData[weekKey] || {})[club.id];
     const wrap = el('section', { class: 'club-section' });
 
-    // Repeat the Current/Next Work Week label above every club so the
-    // context is obvious when scrolling between Jacksonville and St. Augustine.
-    wrap.appendChild(el('div', { class: 'club-week-heading' },
-      weekKey === 'next' ? 'Next Work Week' : 'Current Work Week'));
+    // Show the Current/Next Work Week label only above the first club in
+    // a week group (Jacksonville). St. Augustine sits right below without a
+    // duplicate heading.
+    if (showWeekHeading) {
+      wrap.appendChild(el('div', { class: 'club-week-heading' },
+        weekKey === 'next' ? 'Next Work Week' : 'Current Work Week'));
+    }
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
