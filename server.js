@@ -409,6 +409,25 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     totalsMap[t.location][t.day_index] = t.count_text;
   }
   const { rows: clubRow } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
+
+  // Most recent edit to this club (any action) — powers the Last updated marker.
+  // Scoped to schedule-related actions so user/admin events don't show up.
+  const { rows: lastRows } = await pool.query(
+    `SELECT user_label, action, details, created_at
+       FROM audit_log
+      WHERE club_id = $1
+        AND action IN ('cell_edit','notes_edit','total_edit','employee_add','employee_update','employee_archive')
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [clubId]
+  );
+  const lastUpdate = lastRows[0] ? {
+    user_label: lastRows[0].user_label,
+    action: lastRows[0].action,
+    details: lastRows[0].details,
+    created_at: lastRows[0].created_at,
+  } : null;
+
   res.json({
     schedule: {
       id: schedule.id,
@@ -423,6 +442,7 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     shifts: shiftMap,
     locations: locationsForClubName(clubRow[0] ? clubRow[0].name : ''),
     totals: totalsMap,
+    last_update: lastUpdate,
   });
 }));
 

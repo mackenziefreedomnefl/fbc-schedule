@@ -258,11 +258,57 @@
       onclick: () => switchTab('next'),
     }, 'Next week'));
     tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
+
+    // Filter input so dock staff can type their name and see only their row
+    const filterInput = el('input', {
+      type: 'search',
+      class: 'name-filter',
+      placeholder: 'Filter by name…',
+      autocomplete: 'off',
+    });
+    filterInput.value = state.filter || '';
+    filterInput.addEventListener('input', () => {
+      state.filter = filterInput.value;
+      applyNameFilter();
+    });
+    tabs.appendChild(filterInput);
+
     body.appendChild(tabs);
 
     for (const club of state.clubs) {
       body.appendChild(renderClubSection(club));
     }
+
+    // Apply any existing filter after new rows are rendered
+    applyNameFilter();
+  }
+
+  // Toggle row visibility based on state.filter. Runs against the live DOM
+  // (no re-render) so the user keeps focus in the filter box while typing.
+  function applyNameFilter() {
+    const q = (state.filter || '').trim().toLowerCase();
+    document.querySelectorAll('.schedule-table').forEach(table => {
+      const rows = Array.from(table.querySelectorAll('tbody tr'));
+      let anyVisibleInGroup = false;
+      let lastDivider = null;
+      const finalizeGroup = () => {
+        if (lastDivider) lastDivider.style.display = anyVisibleInGroup ? '' : 'none';
+      };
+      for (const row of rows) {
+        if (row.classList.contains('team-divider')) {
+          finalizeGroup();
+          lastDivider = row;
+          anyVisibleInGroup = false;
+          continue;
+        }
+        const name = (row.getAttribute('data-emp-name') || '').toLowerCase();
+        if (!name) continue; // non-employee rows (shouldn't happen inside tbody but be safe)
+        const match = !q || name.includes(q);
+        row.style.display = match ? '' : 'none';
+        if (match) anyVisibleInGroup = true;
+      }
+      finalizeGroup();
+    });
   }
 
   function renderClubSection(club) {
@@ -284,6 +330,25 @@
     if (!data) {
       wrap.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No schedule loaded.'));
       return wrap;
+    }
+
+    // Last updated marker (plain English summary of the most recent edit).
+    // Sourced from the audit log via the schedule API response.
+    if (data.last_update) {
+      const lu = data.last_update;
+      wrap.appendChild(el('div', { class: 'last-update' }, [
+        el('span', { class: 'muted' }, 'Last updated '),
+        el('span', {}, fmtRelative(lu.created_at)),
+        el('span', { class: 'muted' }, ' by '),
+        el('span', {}, lu.user_label || 'unknown'),
+        el('span', { class: 'muted' }, ' — '),
+        el('span', {}, describeAuditEntry({
+          action: lu.action,
+          details: lu.details || {},
+          club_name: club.name,
+          team: (lu.details || {}).team || null,
+        })),
+      ]));
     }
 
     wrap.appendChild(buildScheduleGrid(club, data));
@@ -359,7 +424,7 @@
 
       for (const emp of groups.get(teamName)) {
         const editable = canEditEmployee(emp);
-        const row = el('tr', { class: teamClass(emp.team) });
+        const row = el('tr', { class: teamClass(emp.team), 'data-emp-name': emp.name });
         row.appendChild(el('td', { class: 'name-cell' }, emp.name));
         for (let d = 0; d < 7; d++) {
           const td = el('td', { class: 'day-cell' });
