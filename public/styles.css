@@ -121,10 +121,31 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   color: #fff;
 }
 .week-tabs-range { margin-left: 12px; font-size: 13px; }
-.name-filter {
+.name-filter-wrap {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.name-filter-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  white-space: nowrap;
+}
+.name-filter {
   width: 240px;
-  max-width: 50%;
+  max-width: 100%;
+}
+
+/* Current/Next Work Week heading repeated above each club */
+.club-week-heading {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 18px 0 8px;
+  text-align: center;
+  color: var(--text);
 }
 
 .last-update {

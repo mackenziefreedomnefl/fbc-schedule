@@ -269,10 +269,12 @@
     tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
 
     // Filter input so dock staff can type their name and see only their row
+    const filterWrap = el('div', { class: 'name-filter-wrap' });
+    filterWrap.appendChild(el('label', { class: 'name-filter-label', for: 'staff-search' }, 'Staff Search'));
     const filterInput = el('input', {
       type: 'search',
+      id: 'staff-search',
       class: 'name-filter',
-      placeholder: 'Filter by name…',
       autocomplete: 'off',
     });
     filterInput.value = state.filter || '';
@@ -280,7 +282,8 @@
       state.filter = filterInput.value;
       applyNameFilter();
     });
-    tabs.appendChild(filterInput);
+    filterWrap.appendChild(filterInput);
+    tabs.appendChild(filterWrap);
 
     body.appendChild(tabs);
 
@@ -332,6 +335,11 @@
   function renderClubSection(club) {
     const data = state.clubData[club.id];
     const wrap = el('section', { class: 'club-section' });
+
+    // Repeat the Current/Next Work Week label above every club so the
+    // context is obvious when scrolling between Jacksonville and St. Augustine.
+    wrap.appendChild(el('div', { class: 'club-week-heading' },
+      state.tab === 'next' ? 'Next Work Week' : 'Current Work Week'));
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
