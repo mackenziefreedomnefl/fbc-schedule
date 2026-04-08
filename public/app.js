@@ -256,10 +256,6 @@
     // Static notice that applies to every schedule
     body.appendChild(el('div', { class: 'shift-notice' }, NOTICE_TEXT));
 
-    // Big bold label so there's no ambiguity about which week is on screen
-    body.appendChild(el('div', { class: 'week-heading' },
-      state.tab === 'next' ? 'Next work week' : 'Current work week'));
-
     // Week tabs: This week / Next week
     const tabs = el('div', { class: 'week-tabs' });
     tabs.appendChild(el('button', {
@@ -271,23 +267,6 @@
       onclick: () => switchTab('next'),
     }, 'Next week'));
     tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
-
-    // Filter input so dock staff can type their name and see only their row
-    const filterWrap = el('div', { class: 'name-filter-wrap' });
-    filterWrap.appendChild(el('label', { class: 'name-filter-label', for: 'staff-search' }, 'Staff Search'));
-    const filterInput = el('input', {
-      type: 'search',
-      id: 'staff-search',
-      class: 'name-filter',
-      autocomplete: 'off',
-    });
-    filterInput.value = state.filter || '';
-    filterInput.addEventListener('input', () => {
-      state.filter = filterInput.value;
-      applyNameFilter();
-    });
-    filterWrap.appendChild(filterInput);
-    tabs.appendChild(filterWrap);
 
     body.appendChild(tabs);
 
@@ -351,7 +330,28 @@
       header.appendChild(el('span', { class: 'edit-chip' },
         isOwner() ? 'Owner edit' : `Editing ${state.me.team || ''}`.trim()));
     }
-    header.appendChild(el('div', { class: 'spacer' }));
+
+    // Per-club Staff Search input. Both clubs share the same state.filter,
+    // so typing in either box filters every employee across both clubs.
+    const filterWrap = el('div', { class: 'name-filter-wrap' });
+    filterWrap.appendChild(el('label', { class: 'name-filter-label' }, 'Staff Search'));
+    const filterInput = el('input', {
+      type: 'search',
+      class: 'name-filter',
+      autocomplete: 'off',
+    });
+    filterInput.value = state.filter || '';
+    filterInput.addEventListener('input', () => {
+      state.filter = filterInput.value;
+      // Mirror the value into every other staff search input on the page
+      document.querySelectorAll('.name-filter').forEach(other => {
+        if (other !== filterInput) other.value = state.filter;
+      });
+      applyNameFilter();
+    });
+    filterWrap.appendChild(filterInput);
+    header.appendChild(filterWrap);
+
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
       header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
     }
