@@ -419,26 +419,6 @@
       wrap.appendChild(buildTotalsGrid(club, data));
     }
 
-    const editableNotes = canEditClub(club.id);
-    const notesWrap = el('div', { class: 'notes' });
-    notesWrap.appendChild(el('label', {}, 'Notes'));
-    const ta = el('textarea', {});
-    ta.value = data.schedule.notes || '';
-    ta.disabled = !editableNotes;
-    if (editableNotes) {
-      let notesTimer;
-      ta.addEventListener('input', () => {
-        clearTimeout(notesTimer);
-        notesTimer = setTimeout(async () => {
-          try {
-            await api(`/api/schedules/${data.schedule.id}/notes`, { method: 'PATCH', body: { notes: ta.value } });
-          } catch (e) { toast(e.message, 'err'); }
-        }, 400);
-      });
-    }
-    notesWrap.appendChild(ta);
-    wrap.appendChild(notesWrap);
-
     return wrap;
   }
 
