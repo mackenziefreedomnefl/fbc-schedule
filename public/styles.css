@@ -180,7 +180,15 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   display: flex;
   flex-direction: column;
   gap: 3px;
+  /* Show about one row by default and let the user scroll inside the panel
+     to reveal the rest of the changes */
+  max-height: 28px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
+.recent-updates-list::-webkit-scrollbar { width: 6px; }
+.recent-updates-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 .recent-updates-row {
   display: grid;
   grid-template-columns: 80px 140px 1fr;

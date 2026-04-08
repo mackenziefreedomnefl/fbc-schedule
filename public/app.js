@@ -438,9 +438,9 @@
       return wrap;
     }
 
-    // Recent changes panel — visible to everyone including anonymous staff
-    // so they can see what a manager changed since they last looked. Shows
-    // the most recent 5 inline and expands to show the rest on click.
+    // Recent changes panel — visible to everyone including anonymous staff.
+    // Shows one row tall by default; the list is scrollable so additional
+    // entries are revealed by scrolling down inside the box.
     const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
     if (updates.length) {
       const panel = el('div', { class: 'recent-updates' });
@@ -448,7 +448,7 @@
         `Recent changes (${updates.length})`));
 
       const listEl = el('div', { class: 'recent-updates-list' });
-      const renderRow = (u) => {
+      updates.forEach(u => {
         const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' ? ' recent-publish' : '') });
         row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
         row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
@@ -458,30 +458,9 @@
           club_name: club.name,
           team: (u.details || {}).team || null,
         })));
-        return row;
-      };
-
-      const initialCount = 5;
-      updates.slice(0, initialCount).forEach(u => listEl.appendChild(renderRow(u)));
+        listEl.appendChild(row);
+      });
       panel.appendChild(listEl);
-
-      if (updates.length > initialCount) {
-        const toggle = el('button', { class: 'ghost', style: 'align-self:flex-start;' });
-        let expanded = false;
-        toggle.textContent = `Show ${updates.length - initialCount} more`;
-        toggle.addEventListener('click', () => {
-          expanded = !expanded;
-          if (expanded) {
-            updates.slice(initialCount).forEach(u => listEl.appendChild(renderRow(u)));
-            toggle.textContent = 'Show fewer';
-          } else {
-            while (listEl.children.length > initialCount) listEl.removeChild(listEl.lastChild);
-            toggle.textContent = `Show ${updates.length - initialCount} more`;
-          }
-        });
-        panel.appendChild(toggle);
-      }
-
       wrap.appendChild(panel);
     }
 
