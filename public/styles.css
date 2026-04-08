@@ -77,6 +77,14 @@ label input, label select, label textarea { margin-top: 4px; }
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 
+/* Big "Current work week" / "Next work week" heading above the tabs */
+.week-heading {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+
 /* Week tabs */
 .week-tabs {
   display: flex;

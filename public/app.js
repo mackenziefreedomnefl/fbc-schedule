@@ -247,6 +247,10 @@
       return;
     }
 
+    // Big bold label so there's no ambiguity about which week is on screen
+    body.appendChild(el('div', { class: 'week-heading' },
+      state.tab === 'next' ? 'Next work week' : 'Current work week'));
+
     // Week tabs: This week / Next week
     const tabs = el('div', { class: 'week-tabs' });
     tabs.appendChild(el('button', {
