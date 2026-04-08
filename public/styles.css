@@ -393,11 +393,14 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     order: 4;
   }
 
-  /* Horizontal scroll for the schedule and totals tables, with a sticky
-     employee name column so you can scroll days and still see who's who */
+  /* Let the schedule/totals tables spill outside the normal content width.
+     This makes the page itself wider than the viewport, which is what iOS
+     Safari requires in order to allow pinch-zoom-out (it will not let you
+     zoom below "fit content" — so there has to be content to zoom out to).
+     The sticky name/location cells still pin to the left edge of the
+     viewport while the whole page scrolls. */
   .schedule-wrap, .totals-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow-x: visible;
   }
   .schedule-table { font-size: 12px; }
   .schedule-table th, .schedule-table td { padding: 4px 6px; }
@@ -429,6 +432,10 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   }
   .totals-table td.totals-cell { min-width: 70px; }
   .totals-table td.totals-cell input { font-size: 16px; padding: 6px 8px; }
+
+  /* Don't clip main horizontally — let the wide tables extend the page */
+  main { max-width: 100%; overflow-x: visible; }
+  html, body { overflow-x: auto; }
 
   /* Modals take up most of the screen on phones */
   .modal-backdrop { padding: 8px; }
