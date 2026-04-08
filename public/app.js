@@ -136,27 +136,11 @@
   // -------- permission helpers --------
   function isOwner() { return state.me && (state.me.role === 'owner' || state.me.role === 'admin'); }
   function isLoggedIn() { return state.me && state.me.id != null; }
-  function canEditEmployee(employee) {
-    if (!isLoggedIn()) return false;
-    if (isOwner()) return true;
-    if (state.me.role !== 'manager') return false;
-    if (Number(state.me.club_id) !== Number(employee.club_id)) return false;
-    if (state.me.team) return (employee.team || '') === state.me.team;
-    return true;
-  }
-  function canEditTeam(clubId, team) {
-    if (!isLoggedIn()) return false;
-    if (isOwner()) return true;
-    if (state.me.role !== 'manager') return false;
-    if (Number(state.me.club_id) !== Number(clubId)) return false;
-    if (state.me.team) return team === state.me.team;
-    return true;
-  }
-  function canEditClub(clubId) {
-    if (!isLoggedIn()) return false;
-    if (isOwner()) return true;
-    return state.me.role === 'manager' && Number(state.me.club_id) === Number(clubId);
-  }
+  // Any signed-in user (owner or manager) can edit every club and every
+  // team. Per-location restrictions were removed on request.
+  function canEditEmployee(/* employee */) { return isLoggedIn(); }
+  function canEditTeam(/* clubId, team */) { return isLoggedIn(); }
+  function canEditClub(/* clubId */) { return isLoggedIn(); }
 
   // -------- modal --------
   function openModal(content, opts = {}) {
@@ -439,8 +423,8 @@
     }
 
     // Recent changes panel — visible to everyone including anonymous staff.
-    // Shows one row tall by default; the list is scrollable so additional
-    // entries are revealed by scrolling down inside the box.
+    // Shows the single most recent change inline, with a View more button
+    // that expands to reveal the rest on click.
     const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
     if (updates.length) {
       const panel = el('div', { class: 'recent-updates' });
@@ -448,7 +432,7 @@
         `Recent changes (${updates.length})`));
 
       const listEl = el('div', { class: 'recent-updates-list' });
-      updates.forEach(u => {
+      const renderRow = (u) => {
         const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' ? ' recent-publish' : '') });
         row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
         row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
@@ -458,9 +442,31 @@
           club_name: club.name,
           team: (u.details || {}).team || null,
         })));
-        listEl.appendChild(row);
-      });
+        return row;
+      };
+
+      listEl.appendChild(renderRow(updates[0]));
       panel.appendChild(listEl);
+
+      if (updates.length > 1) {
+        const toggle = el('button', {
+          class: 'ghost recent-updates-toggle',
+        });
+        let expanded = false;
+        toggle.textContent = `View more (${updates.length - 1})`;
+        toggle.addEventListener('click', () => {
+          expanded = !expanded;
+          if (expanded) {
+            updates.slice(1).forEach(u => listEl.appendChild(renderRow(u)));
+            toggle.textContent = 'Hide';
+          } else {
+            while (listEl.children.length > 1) listEl.removeChild(listEl.lastChild);
+            toggle.textContent = `View more (${updates.length - 1})`;
+          }
+        });
+        panel.appendChild(toggle);
+      }
+
       wrap.appendChild(panel);
     }
 

@@ -61,33 +61,21 @@ function isOwner(user) {
   return user && (user.role === 'owner' || user.role === 'admin');
 }
 
-// Whether a user can edit a single employee's row (cells, name, team, archive).
+// Any signed-in user (owner or manager) can edit every club and every
+// team. Per-team restrictions were removed on request so managers are no
+// longer locked to their home location. Owner-only capabilities (user
+// management, activity log) are still gated by isOwner().
 function canEditEmployee(user, employee) {
   if (!user || !employee) return false;
-  if (isOwner(user)) return true;
-  if (user.role !== 'manager') return false;
-  if (Number(user.club_id) !== Number(employee.club_id)) return false;
-  if (user.team) return (employee.team || '') === user.team;
-  return true;
+  return user.role === 'owner' || user.role === 'admin' || user.role === 'manager';
 }
-
-// Whether a user can add an employee to (clubId, team).
-function canEditTeam(user, clubId, team) {
+function canEditTeam(user /*, clubId, team */) {
   if (!user) return false;
-  if (isOwner(user)) return true;
-  if (user.role !== 'manager') return false;
-  if (Number(user.club_id) !== Number(clubId)) return false;
-  if (user.team) return team === user.team;
-  return true;
+  return user.role === 'owner' || user.role === 'admin' || user.role === 'manager';
 }
-
-// Whether a user can edit anything inside a club (e.g. notes shared per
-// schedule). Owners always; managers if their club matches.
-function canEditClub(user, clubId) {
+function canEditClub(user /*, clubId */) {
   if (!user) return false;
-  if (isOwner(user)) return true;
-  if (user.role !== 'manager') return false;
-  return Number(user.club_id) === Number(clubId);
+  return user.role === 'owner' || user.role === 'admin' || user.role === 'manager';
 }
 
 function userLabel(user) {
