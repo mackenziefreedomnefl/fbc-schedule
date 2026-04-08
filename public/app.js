@@ -287,7 +287,11 @@
     }
 
     wrap.appendChild(buildScheduleGrid(club, data));
-    wrap.appendChild(buildTotalsGrid(club, data));
+    // Totals are a management-only view. Regular staff visiting without an
+    // account just see the schedule and the notes; hide the totals table.
+    if (isLoggedIn()) {
+      wrap.appendChild(buildTotalsGrid(club, data));
+    }
 
     const editableNotes = canEditClub(club.id);
     const notesWrap = el('div', { class: 'notes' });
