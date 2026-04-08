@@ -14,7 +14,8 @@
   const state = {
     me: { id: null },                     // current user (or { id: null })
     clubs: [],                            // [{ id, name }]
-    weekStart: null,                      // YYYY-MM-DD
+    tab: 'current',                       // 'current' | 'next'
+    weekStart: null,                      // YYYY-MM-DD derived from tab (or nav)
     clubData: {},                         // clubId -> { schedule, employees, shifts }
   };
 
@@ -165,12 +166,18 @@
   function closeModal() { $('#modal-root').innerHTML = ''; }
 
   // -------- bootstrap --------
+  function weekForTab(tab) {
+    const thisWeek = mondayOf(new Date());
+    if (tab === 'next') return addDays(thisWeek, 7);
+    return thisWeek;
+  }
+
   async function bootstrap() {
     try {
       const [me, clubs] = await Promise.all([api('/api/me'), api('/api/clubs')]);
       state.me = me || { id: null };
       state.clubs = clubs || [];
-      if (!state.weekStart) state.weekStart = mondayOf(new Date());
+      state.weekStart = weekForTab(state.tab);
       await render();
     } catch (err) {
       const body = $('#main-body');
@@ -181,6 +188,13 @@
       }
       console.error('[bootstrap] failed', err);
     }
+  }
+
+  async function switchTab(tab) {
+    state.tab = tab;
+    state.weekStart = weekForTab(tab);
+    await loadAllSchedules();
+    renderBody();
   }
 
   async function render() {
@@ -233,19 +247,18 @@
       return;
     }
 
-    const toolbar = el('div', { class: 'toolbar' });
-    toolbar.appendChild(el('button', {
-      onclick: async () => { state.weekStart = addDays(state.weekStart, -7); await loadAllSchedules(); renderBody(); },
-    }, '← Prev week'));
-    toolbar.appendChild(el('div', { class: 'muted', style: 'font-weight:600;' }, fmtWeek(state.weekStart)));
-    toolbar.appendChild(el('button', {
-      onclick: async () => { state.weekStart = addDays(state.weekStart, 7); await loadAllSchedules(); renderBody(); },
-    }, 'Next week →'));
-    toolbar.appendChild(el('button', {
-      class: 'ghost',
-      onclick: async () => { state.weekStart = mondayOf(new Date()); await loadAllSchedules(); renderBody(); },
+    // Week tabs: This week / Next week
+    const tabs = el('div', { class: 'week-tabs' });
+    tabs.appendChild(el('button', {
+      class: 'week-tab' + (state.tab === 'current' ? ' active' : ''),
+      onclick: () => switchTab('current'),
     }, 'This week'));
-    body.appendChild(toolbar);
+    tabs.appendChild(el('button', {
+      class: 'week-tab' + (state.tab === 'next' ? ' active' : ''),
+      onclick: () => switchTab('next'),
+    }, 'Next week'));
+    tabs.appendChild(el('div', { class: 'week-tabs-range muted' }, fmtWeek(state.weekStart)));
+    body.appendChild(tabs);
 
     for (const club of state.clubs) {
       body.appendChild(renderClubSection(club));
