@@ -211,6 +211,11 @@ async function main() {
     );
     if (pruned) console.log(`[migrate] pruned ${pruned} audit log entries older than 30 days`);
 
+    // One-shot example data seed (shifts + totals for this week and next week).
+    // Controlled by the app_state flag 'example_seeded' so it only runs once.
+    // Set RESET_EXAMPLE_DATA=true to force it to run again.
+    await seedExampleData(pool);
+
     console.log('[migrate] done.');
   } catch (err) {
     console.error('[migrate] failed:', err);
@@ -219,6 +224,201 @@ async function main() {
   } finally {
     await pool.end().catch(() => {});
   }
+}
+
+// ---------- example data seeder ----------
+
+function mondayOfLocal(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+function addDaysLocal(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Two weeks of sample shift data, one per tab. Empty string = no shift.
+// Index 0 = Monday ... Index 6 = Sunday.
+const EXAMPLE_SHIFTS = {
+  'Jacksonville': [
+    // THIS WEEK
+    {
+      'Nick Tragemann':    ['East','East','','','East','','East'],
+      'Alison Conner':     ['West','West','','','West','West',''],
+      'Sergio Palacios':   ['','','','East','East','East','East'],
+      'Sam Wentworth':     ['','','West','West','','West','West'],
+      'Branson Messer':    ['','','','','','',''],
+      'William Krupsky':   ['','','','','','',''],
+      'Davin Barbour':     ['','','','','West','East','East'],
+      'Delaney Holcomb':   ['','','','East','','East','East'],
+      'Aiden Rock':        ['','','','','','','West'],
+      'William Eisner':    ['','','Open - 4 East','','','',''],
+      'Dustyn Burd':       ['','Beach','','Beach','','Beach','Beach'],
+      'Michael Mobley':    ['Beach','Req Off','Req Off','','Beach','Beach',''],
+      'Brandon Lanier':    ['','Beach','Beach','','Beach','Beach',''],
+      'Tyler Boggess':     ['','','','','','Beach',''],
+      'Morgan Tragemann':  ['Beach','','East','Beach','','','Beach'],
+      'Justice Bramer':    ['Beach','','Beach','','Beach','','Beach'],
+      'Jaron Firesheets':  ['','','','','Beach','Beach','Beach'],
+      'Alec Murino':       ['Beach','','','','Beach','','Beach'],
+      'Mackenzie Shealy':  ['','','','','','',''],
+      'Brandon McSwigan':  ['','Beach','','','','','Beach'],
+    },
+    // NEXT WEEK
+    {
+      'Nick Tragemann':    ['East','East','','','','East','East'],
+      'Alison Conner':     ['West','West','','','West','Req Off',''],
+      'Sergio Palacios':   ['','','','East','East','East','East'],
+      'Sam Wentworth':     ['','','West','West','','West','West'],
+      'Branson Messer':    ['','','','','','',''],
+      'William Krupsky':   ['','','','','','',''],
+      'Davin Barbour':     ['East','','','','East','East','East'],
+      'Delaney Holcomb':   ['','','','East','','East','East'],
+      'Aiden Rock':        ['','','','','','',''],
+      'William Eisner':    ['','','East','','West','East','West'],
+      'Dustyn Burd':       ['','Beach','','Beach','','Beach','Beach'],
+      'Michael Mobley':    ['','Beach','Beach','','Beach','Beach',''],
+      'Brandon Lanier':    ['','Beach','Beach','','Beach','Beach',''],
+      'Tyler Boggess':     ['','','','','','',''],
+      'Morgan Tragemann':  ['Beach','','East','Beach','','West','Beach'],
+      'Justice Bramer':    ['Beach','','Beach','Beach','Req Off','Req Off',''],
+      'Jaron Firesheets':  ['','Beach','','Beach','Beach','','Beach'],
+      'Alec Murino':       ['Beach','','','','Beach','','Beach'],
+      'Mackenzie Shealy':  ['','','','','','',''],
+      'Brandon McSwigan':  ['Beach','','','','','','Beach'],
+    },
+  ],
+  'St. Augustine': [
+    // THIS WEEK
+    {
+      'Sean Dressander':       ['Camachee','Camachee','','','','','Camachee'],
+      'Gavin Carillo':         ['','','Camachee','Camachee','Camachee','Camachee','Camachee'],
+      'Jaxin Gamber':          ['','','','Camachee','','Shipyard','Shipyard'],
+      'Zoe Henley':            ['Req Off','Req Off','Req Off','Req Off','Camachee','Camachee','Camachee'],
+      'Michael Guillet':       ['','','','','Req Off','Req Off','Req Off'],
+      'Julia Catlett':         ['Camachee','','Camachee','','Camachee','Camachee','Camachee'],
+      'Ryan Constantino':      ['Camachee','Camachee','','','Req Off','Req Off','Req Off'],
+      'John Gleaton-Hernandez':['','Camachee','','Camachee','Camachee','',''],
+      'Bill Harris':           ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
+      'Aidan Popp':            ['','','','','','Req Off','Camachee'],
+      'Austin Corzo':          ['','','','12 - Close Camachee','','Camachee',''],
+      'Jack Fant':             ['Shipyard','Shipyard','','','Shipyard','','Shipyard'],
+      'Alexander Vida':        ['','','Shipyard','Shipyard','Camachee','Shipyard',''],
+    },
+    // NEXT WEEK
+    {
+      'Sean Dressander':       ['Camachee','Camachee','Req Off','Req Off','Req Off','Req Off','Req Off'],
+      'Gavin Carillo':         ['','','Camachee','Camachee','Camachee','Camachee','Camachee'],
+      'Jaxin Gamber':          ['','','','','','','Shipyard'],
+      'Zoe Henley':            ['Camachee','','','','Camachee','','Req Off'],
+      'Michael Guillet':       ['','','','','Shipyard','',''],
+      'Julia Catlett':         ['Camachee','','Camachee','','','Camachee','Camachee'],
+      'Ryan Constantino':      ['','Camachee','','Camachee','','',''],
+      'John Gleaton-Hernandez':['','Camachee','','Camachee','','','Camachee'],
+      'Bill Harris':           ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
+      'Aidan Popp':            ['','','','','','Camachee','12 - Close Camachee'],
+      'Austin Corzo':          ['','','','','','Camachee',''],
+      'Jack Fant':             ['Shipyard','Shipyard','','','Shipyard','Shipyard','Shipyard'],
+      'Alexander Vida':        ['','','Shipyard','Shipyard','Shipyard','Shipyard',''],
+    },
+  ],
+};
+
+const EXAMPLE_TOTALS = {
+  'Jacksonville': [
+    { JB:  [4,3,3,3,4,5,5], JCE: [1,1,1,2,3,4,4], JCW: [1,1,1,1,2,2,2] },
+    { JB:  [4,3,3,3,4,5,5], JCE: [2,1,2,2,3,4,4], JCW: [1,1,1,1,2,2,2] },
+  ],
+  'St. Augustine': [
+    { CC:  [4,3,3,3,5,5,5], SY:  [1,1,1,1,1,2,2] },
+    { CC:  [4,3,3,3,4,5,5], SY:  [1,1,1,1,1,2,2] },
+  ],
+};
+
+async function seedExampleData(pool) {
+  const reset = String(process.env.RESET_EXAMPLE_DATA || '').toLowerCase() === 'true';
+  const { rows: flagRows } = await pool.query(
+    "SELECT value FROM app_state WHERE key = 'example_seeded'"
+  );
+  if (flagRows[0] && !reset) {
+    return; // already seeded
+  }
+
+  const thisWeek = mondayOfLocal(new Date());
+  const weeks = [thisWeek, addDaysLocal(thisWeek, 7)];
+  console.log(`[migrate] seeding example data for weeks ${weeks[0]} and ${weeks[1]}`);
+
+  for (const [clubName, weekData] of Object.entries(EXAMPLE_SHIFTS)) {
+    const { rows: clubRows } = await pool.query('SELECT id FROM clubs WHERE name = $1', [clubName]);
+    if (!clubRows[0]) continue;
+    const clubId = clubRows[0].id;
+
+    for (let wIdx = 0; wIdx < 2; wIdx++) {
+      const weekStart = weeks[wIdx];
+
+      // get or create the schedule row
+      const { rows: schedRows } = await pool.query(
+        'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2',
+        [clubId, weekStart]
+      );
+      let scheduleId;
+      if (schedRows[0]) {
+        scheduleId = schedRows[0].id;
+      } else {
+        const { rows: created } = await pool.query(
+          'INSERT INTO schedules (club_id, week_start) VALUES ($1,$2) RETURNING id',
+          [clubId, weekStart]
+        );
+        scheduleId = created[0].id;
+      }
+
+      // insert shifts. DO NOTHING preserves any real edits the user may have
+      // already made; we only fill empty cells.
+      for (const [empName, shifts] of Object.entries(weekData[wIdx])) {
+        const { rows: empRows } = await pool.query(
+          'SELECT id FROM employees WHERE club_id = $1 AND name = $2',
+          [clubId, empName]
+        );
+        if (!empRows[0]) continue;
+        const empId = empRows[0].id;
+        for (let d = 0; d < 7; d++) {
+          const text = shifts[d] || '';
+          if (!text) continue;
+          await pool.query(
+            `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (schedule_id, employee_id, day_index) DO NOTHING`,
+            [scheduleId, empId, d, text]
+          );
+        }
+      }
+
+      // insert totals (same DO NOTHING idempotency)
+      const totalsForWeek = EXAMPLE_TOTALS[clubName][wIdx];
+      for (const [loc, counts] of Object.entries(totalsForWeek)) {
+        for (let d = 0; d < 7; d++) {
+          if (counts[d] == null) continue;
+          await pool.query(
+            `INSERT INTO location_totals (schedule_id, location, day_index, count_text)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (schedule_id, location, day_index) DO NOTHING`,
+            [scheduleId, loc, d, String(counts[d])]
+          );
+        }
+      }
+    }
+  }
+
+  // Mark as seeded so subsequent deploys skip this
+  await pool.query(
+    `INSERT INTO app_state (key, value) VALUES ('example_seeded', NOW()::text)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+  );
+  console.log('[migrate] example data seeded');
 }
 
 main();
