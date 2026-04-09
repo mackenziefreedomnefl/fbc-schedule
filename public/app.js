@@ -159,7 +159,12 @@
 
   // -------- permission helpers --------
   function isOwner() { return state.me && (state.me.role === 'owner' || state.me.role === 'admin'); }
-  function isLoggedIn() { return state.me && state.me.id != null; }
+  const STAFF_VIEW_MODE = new URLSearchParams(window.location.search).has('view') &&
+    new URLSearchParams(window.location.search).get('view') === 'staff';
+  function isLoggedIn() {
+    if (STAFF_VIEW_MODE) return false; // force staff view
+    return state.me && state.me.id != null;
+  }
   // Any signed-in user (owner or manager) can edit every club and every
   // team. Per-location restrictions were removed on request.
   function canEditEmployee(/* employee */) { return isLoggedIn(); }
@@ -540,7 +545,15 @@
         body.appendChild(pickerBar);
       }
 
-      body.appendChild(buildWeekTabs());
+      // "View Live Schedule" link so owners/managers can see what staff see
+      body.appendChild(el('div', { style: 'margin-bottom:10px;' },
+        el('a', {
+          href: '?view=staff',
+          target: '_blank',
+          class: 'ghost',
+          style: 'font-size:13px;color:var(--accent);',
+        }, 'View Live Schedule (staff view) →')));
+
       visibleClubs.forEach((club, idx) => {
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
       });
@@ -793,10 +806,19 @@
       wrap.appendChild(draftBar);
     }
 
-    // Current/Next Work Week heading — sits below the draft toolbar,
-    // right above the date columns
-    wrap.appendChild(el('div', { class: 'club-week-heading' },
+    // Week heading with inline tabs (signed-in) or plain label (staff)
+    const weekHeading = el('div', { class: 'club-week-heading' });
+    weekHeading.appendChild(el('span', {},
       WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+    if (isLoggedIn()) {
+      WEEK_KEYS.forEach(key => {
+        weekHeading.appendChild(el('button', {
+          class: 'week-tab-inline' + (state.tab === key ? ' active' : ''),
+          onclick: () => switchTab(key),
+        }, WEEK_LABELS[key]));
+      });
+    }
+    wrap.appendChild(weekHeading);
 
     wrap.appendChild(buildScheduleGrid(club, data));
     // Totals are a management-only view. Regular staff visiting without an
