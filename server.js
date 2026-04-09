@@ -316,9 +316,12 @@ app.patch('/api/users/:id', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
   const id = Number(req.params.id);
-  const { password, role, club_id, team, name } = req.body || {};
+  const { email, password, role, club_id, team, name } = req.body || {};
   const sets = [];
   const vals = [];
+  if (email) {
+    vals.push(String(email).toLowerCase().trim()); sets.push(`email = $${vals.length}`);
+  }
   if (password) {
     if (password.length < 4) return res.status(400).json({ error: 'password must be at least 4 characters' });
     const hash = await bcrypt.hash(password, 10);
