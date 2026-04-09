@@ -620,6 +620,32 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
       ? 'changes_pending' : 'sent';
   }
 
+  // Cells edited since the last send-for-review — powers the amber
+  // highlighting that persists after Save Draft until the schedule is
+  // reviewed. Returns arrays of {employee_id, day_index} and
+  // {location, day_index} so the frontend can mark those cells.
+  const sinceDate = lastPublishedAt || '1970-01-01';
+  const { rows: pendingCells } = await pool.query(
+    `SELECT DISTINCT
+       (details->>'employee_id')::int AS employee_id,
+       (details->>'day_index')::int   AS day_index
+     FROM audit_log
+     WHERE club_id = $1 AND action = 'cell_edit'
+       AND details->>'week_start' = $2
+       AND created_at > $3`,
+    [clubId, weekStart, sinceDate]
+  );
+  const { rows: pendingTotals } = await pool.query(
+    `SELECT DISTINCT
+       details->>'location'           AS location,
+       (details->>'day_index')::int   AS day_index
+     FROM audit_log
+     WHERE club_id = $1 AND action = 'total_edit'
+       AND details->>'week_start' = $2
+       AND created_at > $3`,
+    [clubId, weekStart, sinceDate]
+  );
+
   res.json({
     schedule: {
       id: schedule.id,
@@ -635,6 +661,8 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     locations: locationsForClubName(clubRow[0] ? clubRow[0].name : ''),
     totals: totalsMap,
     review_status: reviewStatus,
+    pending_cells: pendingCells,
+    pending_totals: pendingTotals,
     last_update: lastUpdate,
     recent_updates: recentUpdates,
   });
