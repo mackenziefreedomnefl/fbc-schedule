@@ -779,11 +779,17 @@
     const table = el('table', { class: 'schedule-table' });
     const weekStart = data.schedule.week_start;
 
-    // Build a Set of cell keys that were edited since the last review so
-    // we can keep them amber even after Save Draft.
+    // Build maps of cells edited since the last review.
+    // pendingReviewCells: Set for quick lookup
+    // pendingReviewInfo: Map with old_value/new_value for strikethrough on removals
     const pendingReviewCells = new Set();
+    const pendingReviewInfo = new Map();
     if (data.pending_cells) {
-      data.pending_cells.forEach(c => pendingReviewCells.add(`${c.employee_id}:${c.day_index}`));
+      data.pending_cells.forEach(c => {
+        const key = `${c.employee_id}:${c.day_index}`;
+        pendingReviewCells.add(key);
+        pendingReviewInfo.set(key, { old_value: c.old_value || '', new_value: c.new_value || '' });
+      });
     }
 
     // Helper to build a header row (used both in thead and repeated between
@@ -864,7 +870,18 @@
                 input.value !== serverVal || isPendingReview);
             });
             td.appendChild(input);
-            // Owner-only: small approve button on amber cells
+            // If a shift was removed (old had text, current is empty), show
+            // strikethrough of the old value so owners can see what was deleted.
+            // Only visible to signed-in users, not staff.
+            if (isPendingReview && !cellVal) {
+              const info = pendingReviewInfo.get(`${emp.id}:${d}`);
+              if (info && info.old_value) {
+                const strike = el('div', { class: 'cell-removed' }, info.old_value);
+                td.appendChild(strike);
+              }
+            }
+            // Owner-only: small approve button on amber cells.
+            // When approved, the strikethrough (removed shift) disappears.
             if (isOwner() && isPendingReview) {
               const approveBtn = el('button', {
                 class: 'cell-approve-btn',
@@ -877,6 +894,8 @@
                       body: { employee_id: emp.id, day_index: d },
                     });
                     input.classList.remove('cell-dirty');
+                    const strike = td.querySelector('.cell-removed');
+                    if (strike) strike.remove();
                     approveBtn.remove();
                   } catch (err) { toast(err.message, 'err'); }
                 },

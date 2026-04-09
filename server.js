@@ -689,10 +689,17 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   // reviewed. Returns arrays of {employee_id, day_index} and
   // {location, day_index} so the frontend can mark those cells.
   const sinceDate = lastPublishedAt || '1970-01-01';
+  // Return pending cells with old_value so the frontend can show
+  // strikethrough when a shift was removed (old had text, new is empty).
   const { rows: pendingCells } = await pool.query(
-    `SELECT DISTINCT
+    `SELECT DISTINCT ON (
+       (a.details->>'employee_id')::int,
+       (a.details->>'day_index')::int
+     )
        (a.details->>'employee_id')::int AS employee_id,
-       (a.details->>'day_index')::int   AS day_index
+       (a.details->>'day_index')::int   AS day_index,
+       a.details->>'old_value'          AS old_value,
+       a.details->>'new_value'          AS new_value
      FROM audit_log a
      WHERE a.club_id = $1 AND a.action = 'cell_edit'
        AND a.details->>'week_start' = $2
@@ -704,7 +711,8 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
            AND (b.details->>'employee_id')::int = (a.details->>'employee_id')::int
            AND (b.details->>'day_index')::int = (a.details->>'day_index')::int
            AND b.created_at > a.created_at
-       )`,
+       )
+     ORDER BY (a.details->>'employee_id')::int, (a.details->>'day_index')::int, a.created_at DESC`,
     [clubId, weekStart, sinceDate]
   );
   const { rows: pendingTotals } = await pool.query(
