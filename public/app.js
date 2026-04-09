@@ -672,6 +672,13 @@
     const table = el('table', { class: 'schedule-table' });
     const weekStart = data.schedule.week_start;
 
+    // Build a Set of cell keys that were edited since the last review so
+    // we can keep them amber even after Save Draft.
+    const pendingReviewCells = new Set();
+    if (data.pending_cells) {
+      data.pending_cells.forEach(c => pendingReviewCells.add(`${c.employee_id}:${c.day_index}`));
+    }
+
     // Helper to build a header row (used both in thead and repeated between
     // team groups so the date columns stay labeled for Jacksonville Beach).
     const buildHeaderRow = (labelText) => {
@@ -736,7 +743,9 @@
             const input = el('input', { type: 'text', 'data-cell-key': key });
             input.value = cellVal;
             input.style.color = cellColorFor(cellVal);
-            if (pending) input.classList.add('cell-dirty');
+            // Amber if locally edited OR edited since last review
+            const isPendingReview = pendingReviewCells.has(`${emp.id}:${d}`);
+            if (pending || isPendingReview) input.classList.add('cell-dirty');
             input.addEventListener('input', () => {
               input.style.color = cellColorFor(input.value);
               const prevVal = state.pendingChanges.has(key)
@@ -744,7 +753,9 @@
               recordEdit(key,
                 { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d },
                 prevVal, input.value, serverVal);
-              input.classList.toggle('cell-dirty', input.value !== serverVal);
+              // Keep amber if pending review OR locally dirty
+              input.classList.toggle('cell-dirty',
+                input.value !== serverVal || isPendingReview);
             });
             td.appendChild(input);
           } else {
@@ -772,6 +783,11 @@
     const wrap = el('div', { class: 'totals-wrap' });
     wrap.appendChild(el('div', { class: 'totals-label' }, 'Staffing by location'));
 
+    const pendingReviewTotals = new Set();
+    if (data.pending_totals) {
+      data.pending_totals.forEach(t => pendingReviewTotals.add(`${t.location}:${t.day_index}`));
+    }
+
     const table = el('table', { class: 'totals-table' });
     const thead = el('thead');
     const hrow = el('tr');
@@ -796,14 +812,16 @@
         if (editable) {
           const input = el('input', { type: 'text', inputmode: 'numeric', 'data-cell-key': tKey });
           input.value = val;
-          if (pending) input.classList.add('cell-dirty');
+          const isTotalPending = pendingReviewTotals.has(`${loc}:${d}`);
+          if (pending || isTotalPending) input.classList.add('cell-dirty');
           input.addEventListener('input', () => {
             const prevVal = state.pendingChanges.has(tKey)
               ? state.pendingChanges.get(tKey).shift_text : serverVal;
             recordEdit(tKey,
               { schedule_id: data.schedule.id, location: loc, day_index: d },
               prevVal, input.value, serverVal);
-            input.classList.toggle('cell-dirty', input.value !== serverVal);
+            input.classList.toggle('cell-dirty',
+              input.value !== serverVal || isTotalPending);
           });
           td.appendChild(input);
         } else {
