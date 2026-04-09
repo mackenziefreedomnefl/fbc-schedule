@@ -21,10 +21,10 @@ const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || process.env.OWNER_EMAILS || 
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const EMAIL_ENABLED = !!(SMTP_USER && SMTP_PASS && NOTIFY_EMAILS.length);
 
-// SMTP config. Defaults to Gmail. Override with SMTP_HOST / SMTP_PORT
-// env vars if using a different provider (e.g. smtp.office365.com:587).
-const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-const SMTP_PORT = parseInt(process.env.SMTP_PORT, 10) || 465;
+// SMTP config. Defaults to Microsoft 365 (Outlook/Exchange).
+// Override with SMTP_HOST / SMTP_PORT env vars for other providers.
+const SMTP_HOST = process.env.SMTP_HOST || 'smtp.office365.com';
+const SMTP_PORT = parseInt(process.env.SMTP_PORT, 10) || 587;
 
 let smtpTransport = null;
 if (EMAIL_ENABLED) {
