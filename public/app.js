@@ -1043,6 +1043,10 @@
         tr.appendChild(el('td', {}, u.team || '—'));
         const actions = el('td');
         actions.appendChild(el('button', {
+          onclick: () => openEditUserModal(u, refresh),
+        }, 'Edit'));
+        actions.appendChild(document.createTextNode(' '));
+        actions.appendChild(el('button', {
           onclick: async () => {
             const pw = prompt(`New password for ${u.email}:`);
             if (!pw) return;
@@ -1079,6 +1083,91 @@
     }, '+ Create manager'));
 
     refresh();
+  }
+
+  function openEditUserModal(u, onSaved) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Edit user — ${u.email}`));
+    const nameIn = el('input', { type: 'text', value: u.name || '' });
+    const emailIn = el('input', { type: 'email', value: u.email });
+    const roleSel = el('select');
+    ['manager', 'owner'].forEach(r => {
+      const opt = el('option', { value: r }, r);
+      if (r === u.role) opt.setAttribute('selected', 'selected');
+      roleSel.appendChild(opt);
+    });
+    const clubSel = el('select');
+    state.clubs.forEach(c => {
+      const opt = el('option', { value: c.id }, c.name);
+      if (Number(c.id) === Number(u.club_id)) opt.setAttribute('selected', 'selected');
+      clubSel.appendChild(opt);
+    });
+    const teamSel = el('select');
+    const clubLabel = el('label', {}, ['Club', clubSel]);
+    const teamLabel = el('label', {}, ['Team', teamSel]);
+    function refreshTeams() {
+      teamSel.innerHTML = '';
+      const club = state.clubs.find(c => c.id === Number(clubSel.value));
+      const teams = teamsForClub(club ? club.name : '');
+      if (teams.length === 0) {
+        teamLabel.style.display = 'none';
+      } else {
+        teamLabel.style.display = '';
+        teams.forEach(t => {
+          const opt = el('option', { value: t }, t);
+          if (t === u.team) opt.setAttribute('selected', 'selected');
+          teamSel.appendChild(opt);
+        });
+      }
+    }
+    clubSel.addEventListener('change', refreshTeams);
+    function updateClubFields() {
+      const show = roleSel.value === 'manager';
+      clubLabel.style.display = show ? '' : 'none';
+      teamLabel.style.display = show ? '' : 'none';
+      if (show) refreshTeams();
+    }
+    roleSel.addEventListener('change', updateClubFields);
+
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(el('label', {}, ['Name', nameIn]));
+    content.appendChild(el('label', {}, ['Email', emailIn]));
+    content.appendChild(el('label', {}, ['Role', roleSel]));
+    content.appendChild(clubLabel);
+    content.appendChild(teamLabel);
+    content.appendChild(errDiv);
+    updateClubFields();
+
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'primary',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            const club = state.clubs.find(c => c.id === Number(clubSel.value));
+            const teams = teamsForClub(club ? club.name : '');
+            const body = {
+              name: nameIn.value.trim(),
+              email: emailIn.value.trim(),
+              role: roleSel.value,
+            };
+            if (roleSel.value === 'manager') {
+              body.club_id = Number(clubSel.value);
+              body.team = teams.length ? teamSel.value : null;
+            } else {
+              body.club_id = null;
+              body.team = null;
+            }
+            await api(`/api/users/${u.id}`, { method: 'PATCH', body });
+            closeModal();
+            toast('User updated');
+            if (onSaved) onSaved();
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Save'),
+    ]));
+    openModal(content);
   }
 
   function openCreateUserModal(onCreated) {
