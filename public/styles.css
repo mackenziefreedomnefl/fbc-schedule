@@ -217,6 +217,34 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   background: rgba(34, 197, 94, 0.10);
 }
 
+/* Location picker for anonymous staff */
+.location-picker {
+  text-align: center;
+  padding: 60px 20px;
+}
+.location-picker h2 { font-size: 24px; margin-bottom: 24px; }
+.location-picker-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.location-picker-btn {
+  font-size: 18px !important;
+  padding: 16px 40px !important;
+  border-radius: 10px !important;
+}
+.location-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 .club-week-heading {
   font-size: 18px;
   font-weight: 700;

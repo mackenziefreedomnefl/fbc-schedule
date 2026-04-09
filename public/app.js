@@ -37,6 +37,7 @@
     tab: 'current',
     weekStart: null,
     weekData: { current: {}, next: {}, week3: {} },
+    staffClubId: null,  // anonymous staff: which club they selected to view
     // Draft / undo-redo state. pendingChanges is a Map keyed by
     // "scheduleId:empId:dayIndex" (or "T:scheduleId:loc:dayIndex" for totals).
     // Each value = { schedule_id, employee_id|null, location|null, day_index,
@@ -489,13 +490,42 @@
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
       });
     } else {
-      // Anonymous staff view: no tabs. Every week stacked in order — this
-      // week's clubs first, then next week's, then week after next's.
-      WEEK_KEYS.forEach(weekKey => {
-        state.clubs.forEach((club, idx) => {
-          body.appendChild(renderClubSection(club, weekKey, idx === 0));
+      // Anonymous staff view: pick a location first, then show that club only.
+      if (!state.staffClubId) {
+        // Location picker
+        const picker = el('div', { class: 'location-picker' });
+        picker.appendChild(el('h2', {}, 'Select your location'));
+        const btnWrap = el('div', { class: 'location-picker-buttons' });
+        state.clubs.forEach(c => {
+          btnWrap.appendChild(el('button', {
+            class: 'primary location-picker-btn',
+            onclick: async () => {
+              state.staffClubId = c.id;
+              await loadAllSchedules();
+              renderBody();
+            },
+          }, c.name));
         });
-      });
+        picker.appendChild(btnWrap);
+        body.appendChild(picker);
+        return;
+      }
+
+      // Show selected club only, with a switch button
+      const selectedClub = state.clubs.find(c => c.id === state.staffClubId);
+      if (selectedClub) {
+        const switchBar = el('div', { class: 'location-switch' });
+        switchBar.appendChild(el('span', { class: 'muted' }, `Viewing: ${selectedClub.name}`));
+        switchBar.appendChild(el('button', {
+          class: 'ghost',
+          onclick: () => { state.staffClubId = null; renderBody(); },
+        }, 'Switch location'));
+        body.appendChild(switchBar);
+
+        WEEK_KEYS.forEach(weekKey => {
+          body.appendChild(renderClubSection(selectedClub, weekKey, true));
+        });
+      }
     }
 
     // Apply any existing filter after new rows are rendered
