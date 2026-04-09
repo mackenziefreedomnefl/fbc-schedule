@@ -572,13 +572,10 @@
 
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
       header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
-      // Managers see Send for Review; owners already see the status badge
-      if (!isOwner()) {
-        header.appendChild(el('button', {
-          class: 'primary',
-          onclick: () => openPublishModal(club, data),
-        }, 'Send for Review'));
-      }
+      header.appendChild(el('button', {
+        class: 'primary',
+        onclick: () => openPublishModal(club, data),
+      }, 'Send for Review'));
     }
     wrap.appendChild(header);
 
