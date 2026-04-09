@@ -531,10 +531,9 @@
     // Show the Current/Next Work Week label only above the first club in
     // a week group (Jacksonville). St. Augustine sits right below without a
     // duplicate heading.
-    if (showWeekHeading) {
-      wrap.appendChild(el('div', { class: 'club-week-heading' },
-        WEEK_HEADINGS[weekKey] || 'Current Work Week'));
-    }
+    // Show Current/Next Work Week heading above every club's schedule
+    wrap.appendChild(el('div', { class: 'club-week-heading' },
+      WEEK_HEADINGS[weekKey] || 'Current Work Week'));
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
