@@ -647,9 +647,9 @@
       // Show review status + unsaved count in the same line
       const rs = data ? (data.review_status || 'draft') : 'draft';
       const statusText = {
-        draft: 'Draft — not sent for review',
-        changes_pending: 'Changes pending review',
-        sent: 'Sent for review',
+        draft: isOwner() ? 'Draft — not sent for review' : 'Draft — not sent for review',
+        changes_pending: isOwner() ? 'Changes awaiting your approval' : 'Changes pending review',
+        sent: isOwner() ? 'Approved' : 'Sent for review',
       }[rs] || '';
       const statusClass = {
         draft: 'review-badge draft',
