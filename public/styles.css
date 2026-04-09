@@ -268,12 +268,34 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   color: #fff;
 }
 
+/* Inline week tabs inside the heading */
+.week-tab-inline {
+  font-size: 13px;
+  padding: 4px 12px;
+  margin-left: 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.week-tab-inline:hover { color: var(--text); border-color: var(--accent); }
+.week-tab-inline.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .club-week-heading {
   font-size: 18px;
   font-weight: 700;
   margin: 18px 0 8px;
   text-align: center;
   color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .last-update {
