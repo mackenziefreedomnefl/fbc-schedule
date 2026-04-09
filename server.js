@@ -3,11 +3,110 @@ const path = require('path');
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
+const nodemailer = require('nodemailer');
 const { Pool } = require('pg');
 const PgSession = require('connect-pg-simple')(session);
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
 const PORT = process.env.PORT || 3000;
+const DAYS_SERVER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// ---------- email notifications ----------
+// Set SMTP_USER + SMTP_PASS (Gmail app password) + NOTIFY_EMAILS in Railway
+// to enable email alerts. Changes are batched into a single email every 60s.
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER;
+const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || process.env.OWNER_EMAILS || '')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const EMAIL_ENABLED = !!(SMTP_USER && SMTP_PASS && NOTIFY_EMAILS.length);
+
+let smtpTransport = null;
+if (EMAIL_ENABLED) {
+  smtpTransport = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+  console.log(`[email] enabled — will send to ${NOTIFY_EMAILS.join(', ')}`);
+} else {
+  console.log('[email] disabled — set SMTP_USER, SMTP_PASS, and NOTIFY_EMAILS to enable');
+}
+
+const emailBuffer = [];
+let emailFlushTimer = null;
+const EMAIL_BATCH_MS = 60 * 1000; // 60 seconds
+
+function queueEmail(userLabel, action, details) {
+  if (!EMAIL_ENABLED) return;
+  emailBuffer.push({ userLabel, action, details, time: new Date() });
+  if (!emailFlushTimer) {
+    emailFlushTimer = setTimeout(() => {
+      emailFlushTimer = null;
+      flushEmail().catch(err => console.error('[email] flush error', err.message));
+    }, EMAIL_BATCH_MS);
+  }
+}
+
+async function flushEmail() {
+  if (!emailBuffer.length || !smtpTransport) return;
+  const events = emailBuffer.splice(0);
+  const lines = events.map(e => {
+    const t = e.time.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true });
+    return `<li><strong>${t}</strong> — <em>${e.userLabel}</em>: ${describeEmailEvent(e)}</li>`;
+  }).join('');
+  const subject = events.length === 1
+    ? `FBC Schedule: ${events[0].userLabel} made a change`
+    : `FBC Schedule: ${events.length} new changes`;
+  const html = `
+    <h2 style="margin:0 0 12px;">Freedom Boat Club NEFL Schedule</h2>
+    <p style="color:#666;margin:0 0 8px;">The following changes were made in the last minute:</p>
+    <ul style="padding-left:20px;">${lines}</ul>
+    <p style="margin-top:16px;"><a href="https://schedule.fbcnefl.com">Open Schedule Dashboard</a></p>
+  `;
+  try {
+    await smtpTransport.sendMail({
+      from: EMAIL_FROM,
+      to: NOTIFY_EMAILS.join(', '),
+      subject,
+      html,
+    });
+    console.log(`[email] sent ${events.length} change(s) to ${NOTIFY_EMAILS.join(', ')}`);
+  } catch (err) {
+    console.error('[email] send failed', err.message);
+  }
+}
+
+function describeEmailEvent(e) {
+  const d = e.details || {};
+  switch (e.action) {
+    case 'cell_edit': {
+      const day = DAYS_SERVER[d.day_index] || 'day';
+      const week = d.week_start || '';
+      if (!d.new_value && d.old_value) return `removed ${d.employee_name}'s ${day} shift (was "${d.old_value}") — week of ${week}`;
+      if (d.new_value && !d.old_value) return `set ${d.employee_name}'s ${day} shift to "${d.new_value}" — week of ${week}`;
+      return `changed ${d.employee_name}'s ${day} shift: "${d.old_value || ''}" → "${d.new_value || ''}" — week of ${week}`;
+    }
+    case 'notes_edit': return `updated notes for week of ${d.week_start || '?'}`;
+    case 'total_edit': {
+      const day = DAYS_SERVER[d.day_index] || 'day';
+      return `set ${d.location} ${day} count to "${d.count_text || '(empty)'}" — week of ${d.week_start || '?'}`;
+    }
+    case 'employee_add': return `added ${d.employee_name} to ${d.team || 'roster'}`;
+    case 'employee_update': return `updated ${d.employee_name}`;
+    case 'employee_archive': return `archived ${d.employee_name}`;
+    case 'schedule_published': {
+      const msg = d.message ? ` — "${d.message}"` : '';
+      return `published ${d.club_name || 'club'} schedule for week of ${d.week_start || '?'}${msg}`;
+    }
+    case 'notice_edit': return `updated the shift notice`;
+    case 'user_create': return `created user ${d.email} (${d.role || '?'})`;
+    case 'user_update': return `updated user #${d.target_user_id}`;
+    case 'user_delete': return `deleted user #${d.deleted_user_id}`;
+    default: return e.action;
+  }
+}
 
 const useSsl = String(process.env.PGSSL || '').toLowerCase() === 'true'
   || /railway|render|heroku|amazonaws/i.test(process.env.DATABASE_URL || '');
@@ -95,6 +194,8 @@ async function audit(user, action, clubId, team, details) {
   } catch (e) {
     console.error('[audit] failed to record', action, e.message);
   }
+  // Also queue an email notification (non-blocking, never throws)
+  queueEmail(userLabel(user), action, details || {});
 }
 
 // Authoritative list of manual-total locations per club. The frontend uses
