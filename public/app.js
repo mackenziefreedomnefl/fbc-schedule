@@ -636,6 +636,12 @@
 
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
       header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
+      if (data) {
+        header.appendChild(el('button', {
+          class: 'ghost',
+          onclick: () => { window.location.href = `/api/export/csv?club_id=${club.id}&week=${data.schedule.week_start}`; },
+        }, 'CSV'));
+      }
       if (isOwner()) {
         // Owners get Publish (acts as approve) instead of Send for Review
         header.appendChild(el('button', {
@@ -1104,6 +1110,10 @@
 
     content.appendChild(el('div', { class: 'modal-actions' }, [
       el('button', { onclick: closeModal }, 'Close'),
+      el('button', {
+        class: 'ghost',
+        onclick: () => { window.location.href = '/api/export/backup'; },
+      }, 'Download full backup (JSON)'),
     ]));
 
     function renderTab() {

@@ -849,6 +849,67 @@ app.patch('/api/schedules/:id/notes', ah(async (req, res) => {
 }));
 
 // ---------- health ----------
+// ---------- export / backup ----------
+// Full JSON backup of all data (owner-only)
+app.get('/api/export/backup', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
+  const { rows: employees } = await pool.query('SELECT id, club_id, name, team, archived, sort_order FROM employees ORDER BY club_id, sort_order');
+  const { rows: schedules } = await pool.query('SELECT id, club_id, week_start, status, notes, updated_at FROM schedules ORDER BY week_start DESC');
+  const { rows: shifts } = await pool.query('SELECT schedule_id, employee_id, day_index, shift_text FROM shifts');
+  const { rows: totals } = await pool.query('SELECT schedule_id, location, day_index, count_text FROM location_totals');
+  const { rows: users } = await pool.query('SELECT id, email, role, club_id, team, name FROM users ORDER BY role, email');
+  res.setHeader('Content-Disposition', `attachment; filename="fbc-schedule-backup-${new Date().toISOString().slice(0,10)}.json"`);
+  res.json({ exported_at: new Date().toISOString(), clubs, employees, schedules, shifts, totals, users });
+}));
+
+// CSV export of a specific week's schedule
+app.get('/api/export/csv', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const clubId = Number(req.query.club_id);
+  const weekStart = req.query.week;
+  if (!clubId || !weekStart) return res.status(400).json({ error: 'club_id and week required' });
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
+  const clubName = clubRows[0] ? clubRows[0].name : 'Club';
+  const { rows: emps } = await pool.query(
+    'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [clubId]);
+  const { rows: schedRows } = await pool.query(
+    'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [clubId, weekStart]);
+  const scheduleId = schedRows[0] ? schedRows[0].id : null;
+  let shiftMap = {};
+  if (scheduleId) {
+    const { rows: shifts } = await pool.query(
+      'SELECT employee_id, day_index, shift_text FROM shifts WHERE schedule_id = $1', [scheduleId]);
+    for (const s of shifts) {
+      shiftMap[s.employee_id] = shiftMap[s.employee_id] || {};
+      shiftMap[s.employee_id][s.day_index] = s.shift_text;
+    }
+  }
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const header = ['Employee','Team',...days.map((d, i) => {
+    const dt = new Date(weekStart + 'T00:00:00'); dt.setDate(dt.getDate() + i);
+    return `${d} ${dt.getMonth()+1}/${dt.getDate()}`;
+  })];
+  const rows = [header.join(',')];
+  for (const emp of emps) {
+    const cells = [
+      `"${(emp.name || '').replace(/"/g, '""')}"`,
+      `"${(emp.team || '').replace(/"/g, '""')}"`,
+    ];
+    for (let d = 0; d < 7; d++) {
+      const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
+      cells.push(`"${val.replace(/"/g, '""')}"`);
+    }
+    rows.push(cells.join(','));
+  }
+  const csv = rows.join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${clubName}-${weekStart}.csv"`);
+  res.send(csv);
+}));
+
 app.get('/api/health', ah(async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT NOW() AS now');
