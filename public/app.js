@@ -174,9 +174,11 @@
     return `T:${scheduleId}:${loc}:${dayIndex}`;
   }
 
+  // ids must include club_id so undo/redo/save scope per-club
   function recordEdit(key, ids, oldVal, newVal, serverVal) {
     state.undoStack.push({ key, ...ids, old_value: oldVal, new_value: newVal, server_value: serverVal });
-    state.redoStack = [];
+    // Clear redo only for this club
+    state.redoStack = state.redoStack.filter(e => e.club_id !== ids.club_id);
     if (newVal === serverVal) {
       state.pendingChanges.delete(key);
     } else {
@@ -199,6 +201,7 @@
         employee_id: entry.employee_id || null,
         location: entry.location || null,
         day_index: entry.day_index,
+        club_id: entry.club_id,
         shift_text: valueToSet,
         server_value: entry.server_value,
       });
@@ -206,26 +209,49 @@
     updateDraftToolbar();
   }
 
-  function undo() {
-    if (!state.undoStack.length) return;
-    const entry = state.undoStack.pop();
-    state.redoStack.push(entry);
-    applyUndoRedo(entry, entry.old_value);
+  function undoForClub(clubId) {
+    for (let i = state.undoStack.length - 1; i >= 0; i--) {
+      if (state.undoStack[i].club_id === clubId) {
+        const entry = state.undoStack.splice(i, 1)[0];
+        state.redoStack.push(entry);
+        applyUndoRedo(entry, entry.old_value);
+        return;
+      }
+    }
   }
 
-  function redo() {
-    if (!state.redoStack.length) return;
-    const entry = state.redoStack.pop();
-    state.undoStack.push(entry);
-    applyUndoRedo(entry, entry.new_value);
+  function redoForClub(clubId) {
+    for (let i = state.redoStack.length - 1; i >= 0; i--) {
+      if (state.redoStack[i].club_id === clubId) {
+        const entry = state.redoStack.splice(i, 1)[0];
+        state.undoStack.push(entry);
+        applyUndoRedo(entry, entry.new_value);
+        return;
+      }
+    }
   }
 
-  async function saveDraft() {
-    if (!state.pendingChanges.size) return;
-    const changes = Array.from(state.pendingChanges.values());
-    state.pendingChanges.clear();
-    state.undoStack = [];
-    state.redoStack = [];
+  function countForClub(clubId) {
+    let n = 0;
+    state.pendingChanges.forEach(v => { if (v.club_id === clubId) n++; });
+    return n;
+  }
+  function undoCountForClub(clubId) {
+    return state.undoStack.filter(e => e.club_id === clubId).length;
+  }
+  function redoCountForClub(clubId) {
+    return state.redoStack.filter(e => e.club_id === clubId).length;
+  }
+
+  async function saveDraftForClub(clubId) {
+    const changes = [];
+    state.pendingChanges.forEach((v, k) => {
+      if (v.club_id === clubId) changes.push({ key: k, ...v });
+    });
+    if (!changes.length) return;
+    changes.forEach(c => state.pendingChanges.delete(c.key));
+    state.undoStack = state.undoStack.filter(e => e.club_id !== clubId);
+    state.redoStack = state.redoStack.filter(e => e.club_id !== clubId);
 
     let ok = 0;
     let failed = 0;
@@ -263,23 +289,20 @@
   }
 
   function updateDraftToolbar() {
-    // Update every draft toolbar on the page (one per club)
     document.querySelectorAll('.draft-toolbar').forEach(bar => {
-      const count = state.pendingChanges.size;
+      const clubId = Number(bar.getAttribute('data-club-id'));
+      const count = countForClub(clubId);
       const badge = bar.querySelector('.review-badge');
       const saveBtn = bar.querySelector('.draft-save');
       const undoBtn = bar.querySelector('.draft-undo');
       const redoBtn = bar.querySelector('.draft-redo');
-      if (badge) {
-        if (count) {
-          badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
-          badge.className = 'review-badge draft';
-        }
-        // When count goes to 0 the full re-render after saveDraft handles the text
+      if (badge && count) {
+        badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
+        badge.className = 'review-badge draft';
       }
       if (saveBtn) saveBtn.disabled = !count;
-      if (undoBtn) undoBtn.disabled = !state.undoStack.length;
-      if (redoBtn) redoBtn.disabled = !state.redoStack.length;
+      if (undoBtn) undoBtn.disabled = !undoCountForClub(clubId);
+      if (redoBtn) redoBtn.disabled = !redoCountForClub(clubId);
     });
   }
 
@@ -287,9 +310,16 @@
   document.addEventListener('keydown', (e) => {
     if (!isLoggedIn()) return;
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-    else if (mod && (e.key === 'Z' || e.key === 'y')) { e.preventDefault(); redo(); }
-    else if (mod && e.key === 's') { e.preventDefault(); saveDraft(); }
+    // Find the club_id of the focused cell (if any) for per-club undo/redo
+    const focusedBar = document.activeElement?.closest('.club-section')?.querySelector('.draft-toolbar');
+    const focusedClubId = focusedBar ? Number(focusedBar.getAttribute('data-club-id')) : null;
+    // Fall back to the first visible club
+    const firstBar = document.querySelector('.draft-toolbar');
+    const clubId = focusedClubId || (firstBar ? Number(firstBar.getAttribute('data-club-id')) : null);
+    if (!clubId) return;
+    if (mod && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoForClub(clubId); }
+    else if (mod && (e.key === 'Z' || e.key === 'y')) { e.preventDefault(); redoForClub(clubId); }
+    else if (mod && e.key === 's') { e.preventDefault(); saveDraftForClub(clubId); }
   });
 
   // Warn if leaving the page with unsaved changes
@@ -724,17 +754,15 @@
     // Draft toolbar (Undo / Redo / Save Draft) — shown under every club
     // so the user doesn't have to scroll back up to save.
     if (isLoggedIn()) {
-      const draftBar = el('div', { class: 'draft-toolbar' });
-      const count = state.pendingChanges.size;
+      const draftBar = el('div', { class: 'draft-toolbar', 'data-club-id': club.id });
+      const clubCount = countForClub(club.id);
+      const clubUndo = undoCountForClub(club.id);
+      const clubRedo = redoCountForClub(club.id);
       const rs = data ? (data.review_status || 'draft') : 'draft';
 
-      // Three-state indicator:
-      // 1. Local unsaved edits → amber "UNSAVED CHANGES"
-      // 2. Saved but not reviewed → orange "SAVED — NOT YET SENT FOR REVIEW"
-      // 3. Reviewed → green "SENT FOR REVIEW" / "APPROVED"
       let statusText, statusClass;
-      if (count) {
-        statusText = `${count} unsaved change${count === 1 ? '' : 's'}`;
+      if (clubCount) {
+        statusText = `${clubCount} unsaved change${clubCount === 1 ? '' : 's'}`;
         statusClass = 'review-badge draft';
       } else if (rs === 'approved') {
         statusText = isOwner() ? 'Approved' : 'Approved';
@@ -751,16 +779,16 @@
       }
       draftBar.appendChild(el('span', { class: statusClass }, statusText));
       draftBar.appendChild(el('button', {
-        class: 'draft-undo', disabled: !state.undoStack.length,
-        onclick: undo,
+        class: 'draft-undo', disabled: !clubUndo,
+        onclick: () => undoForClub(club.id),
       }, 'Undo'));
       draftBar.appendChild(el('button', {
-        class: 'draft-redo', disabled: !state.redoStack.length,
-        onclick: redo,
+        class: 'draft-redo', disabled: !clubRedo,
+        onclick: () => redoForClub(club.id),
       }, 'Redo'));
       draftBar.appendChild(el('button', {
-        class: 'primary draft-save', disabled: !count,
-        onclick: saveDraft,
+        class: 'primary draft-save', disabled: !clubCount,
+        onclick: () => saveDraftForClub(club.id),
       }, 'Save Draft'));
       wrap.appendChild(draftBar);
     }
@@ -870,7 +898,7 @@
               const prevVal = state.pendingChanges.has(key)
                 ? state.pendingChanges.get(key).shift_text : serverVal;
               recordEdit(key,
-                { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d },
+                { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d, club_id: club.id },
                 prevVal, input.value, serverVal);
               input.classList.toggle('cell-dirty',
                 input.value !== serverVal || isPendingReview);
@@ -968,7 +996,7 @@
             const prevVal = state.pendingChanges.has(tKey)
               ? state.pendingChanges.get(tKey).shift_text : serverVal;
             recordEdit(tKey,
-              { schedule_id: data.schedule.id, location: loc, day_index: d },
+              { schedule_id: data.schedule.id, location: loc, day_index: d, club_id: club.id },
               prevVal, input.value, serverVal);
             input.classList.toggle('cell-dirty',
               input.value !== serverVal || isTotalPending);
