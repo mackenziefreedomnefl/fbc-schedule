@@ -463,25 +463,6 @@
     body.appendChild(notice);
 
     if (isLoggedIn()) {
-      // Draft toolbar: Save Draft + Undo + Redo
-      const draftBar = el('div', { class: 'draft-toolbar' });
-      const count = state.pendingChanges.size;
-      draftBar.appendChild(el('span', { class: 'draft-count muted' },
-        count ? `${count} unsaved change${count === 1 ? '' : 's'}` : 'No changes'));
-      draftBar.appendChild(el('button', {
-        class: 'draft-undo', disabled: !state.undoStack.length,
-        onclick: undo,
-      }, 'Undo'));
-      draftBar.appendChild(el('button', {
-        class: 'draft-redo', disabled: !state.redoStack.length,
-        onclick: redo,
-      }, 'Redo'));
-      draftBar.appendChild(el('button', {
-        class: 'primary draft-save', disabled: !count,
-        onclick: saveDraft,
-      }, 'Save Draft'));
-      body.appendChild(draftBar);
-
       // Manager / owner view: tabs flip the whole page between current
       // and next week, one week visible at a time.
       body.appendChild(buildWeekTabs());
@@ -643,6 +624,28 @@
       }
 
       wrap.appendChild(panel);
+    }
+
+    // Draft toolbar (Undo / Redo / Save Draft) — only shown under the
+    // first club (Jacksonville) so it's not duplicated on the page.
+    if (isLoggedIn() && showWeekHeading) {
+      const draftBar = el('div', { class: 'draft-toolbar' });
+      const count = state.pendingChanges.size;
+      draftBar.appendChild(el('span', { class: 'draft-count muted' },
+        count ? `${count} unsaved change${count === 1 ? '' : 's'}` : 'No changes'));
+      draftBar.appendChild(el('button', {
+        class: 'draft-undo', disabled: !state.undoStack.length,
+        onclick: undo,
+      }, 'Undo'));
+      draftBar.appendChild(el('button', {
+        class: 'draft-redo', disabled: !state.redoStack.length,
+        onclick: redo,
+      }, 'Redo'));
+      draftBar.appendChild(el('button', {
+        class: 'primary draft-save', disabled: !count,
+        onclick: saveDraft,
+      }, 'Save Draft'));
+      wrap.appendChild(draftBar);
     }
 
     wrap.appendChild(buildScheduleGrid(club, data));
