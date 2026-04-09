@@ -573,8 +573,8 @@ app.get('/api/slack/time-off', ah(async (req, res) => {
   if (!user) return res.status(401).json({ error: 'sign in required' });
   if (!SLACK_ENABLED) return res.status(400).json({ error: 'Slack not configured — set SLACK_BOT_TOKEN and SLACK_CHANNEL_ID' });
 
-  // Pull last 7 days of messages
-  const oldest = Math.floor((Date.now() - 7 * 86400 * 1000) / 1000);
+  // Pull last 90 days of messages
+  const oldest = Math.floor((Date.now() - 90 * 86400 * 1000) / 1000);
   let messages = [];
   try {
     const resp = await fetch(`https://slack.com/api/conversations.history?channel=${SLACK_CHANNEL_ID}&limit=200&oldest=${oldest}`, {
