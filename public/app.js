@@ -348,13 +348,13 @@
     if (!body) return;
     const banner = el('div', { class: 'publish-banner' });
     banner.appendChild(el('div', { class: 'publish-banner-title' },
-      `${unseen.length} new published schedule${unseen.length === 1 ? '' : 's'}`));
+      `${unseen.length} schedule${unseen.length === 1 ? '' : 's'} sent for review`));
     const list = el('div', { class: 'publish-banner-list' });
     unseen.slice(0, 5).forEach(e => {
       const d = e.details || {};
       const team = d.team ? ` (${d.team})` : '';
       const msg = d.message ? ` — "${d.message}"` : '';
-      const line = `${fmtRelative(e.created_at)} — ${e.user_label} published ${e.club_name || ''}${team} for week of ${d.week_start}${msg}`;
+      const line = `${fmtRelative(e.created_at)} — ${e.user_label} sent ${e.club_name || ''}${team} for review — week of ${d.week_start}${msg}`;
       list.appendChild(el('div', {}, line));
     });
     banner.appendChild(list);
@@ -569,7 +569,7 @@
       header.appendChild(el('button', {
         class: 'primary',
         onclick: () => openPublishModal(club, data),
-      }, 'Publish changes'));
+      }, 'Send for Review'));
     }
     wrap.appendChild(header);
 
@@ -1158,7 +1158,7 @@
         return `archived ${d.employee_name} from ${club}${team}`;
       case 'schedule_published': {
         const msg = d.message ? ` — "${d.message}"` : '';
-        return `published the ${club || d.club_name || 'club'}${team} schedule for week of ${d.week_start}${msg}`;
+        return `sent ${club || d.club_name || 'club'}${team} schedule for review — week of ${d.week_start}${msg}`;
       }
       case 'user_create':
         return `created user ${d.email} (${d.role}${d.team ? ', ' + d.team : ''})`;
@@ -1174,10 +1174,10 @@
   // -------- publish modal --------
   function openPublishModal(club, data) {
     const content = el('div');
-    content.appendChild(el('h2', {}, `Publish changes — ${club.name}`));
+    content.appendChild(el('h2', {}, `Send for Review — ${club.name}`));
     content.appendChild(el('p', { class: 'muted' },
-      `This will notify the owners that your schedule for the week of ${data.schedule.week_start} is ready.`));
-    const msgIn = el('textarea', { placeholder: 'Optional note to the owners (e.g. "all shifts confirmed")' });
+      `This will notify the owners that your schedule for the week of ${data.schedule.week_start} is ready for review.`));
+    const msgIn = el('textarea', { placeholder: 'Optional note (e.g. "all shifts confirmed")' });
     msgIn.style.minHeight = '70px';
     const errDiv = el('div', { class: 'error' });
     content.appendChild(el('label', {}, ['Note (optional)', msgIn]));
@@ -1194,12 +1194,12 @@
               body: { week_start: data.schedule.week_start, message: msgIn.value.trim() },
             });
             closeModal();
-            toast('Published — owners will be notified');
+            toast('Sent for review');
             await loadAllSchedules();
             renderBody();
           } catch (e) { errDiv.textContent = e.message; }
         },
-      }, 'Publish'),
+      }, 'Send'),
     ]));
     openModal(content);
   }
