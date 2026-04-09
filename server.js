@@ -728,6 +728,36 @@ app.get('/api/health', ah(async (req, res) => {
   }
 }));
 
+// Diagnostic: send a test email immediately (no 60s wait). Visit this URL
+// in your browser while signed in as owner to verify SMTP is working.
+app.get('/api/test-email', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  if (!EMAIL_ENABLED) {
+    return res.json({
+      ok: false,
+      error: 'Email not enabled',
+      detail: {
+        SMTP_USER: SMTP_USER ? '(set)' : '(missing)',
+        SMTP_PASS: SMTP_PASS ? '(set)' : '(missing)',
+        NOTIFY_EMAILS: NOTIFY_EMAILS.length ? NOTIFY_EMAILS : '(empty)',
+        EMAIL_FROM: EMAIL_FROM || '(missing)',
+      },
+    });
+  }
+  try {
+    const info = await smtpTransport.sendMail({
+      from: EMAIL_FROM,
+      to: NOTIFY_EMAILS.join(', '),
+      subject: 'FBC Schedule — Test Email',
+      html: '<h2>Test email from FBC Schedule Dashboard</h2><p>If you see this, email notifications are working.</p><p><a href="https://schedule.fbcnefl.com">Open Dashboard</a></p>',
+    });
+    res.json({ ok: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected });
+  } catch (e) {
+    res.json({ ok: false, error: e.message, code: e.code || null });
+  }
+}));
+
 // ---------- SPA fallback ----------
 app.get('*', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
