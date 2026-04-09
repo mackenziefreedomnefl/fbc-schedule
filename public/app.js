@@ -576,6 +576,23 @@
         class: 'primary',
         onclick: () => openPublishModal(club, data),
       }, 'Send for Review'));
+      // Owner-only: approve everything at once
+      if (isOwner() && data && data.review_status !== 'sent') {
+        header.appendChild(el('button', {
+          class: 'ghost',
+          onclick: async () => {
+            try {
+              await api(`/api/clubs/${club.id}/approve`, {
+                method: 'POST',
+                body: { week_start: data.schedule.week_start },
+              });
+              toast('Approved');
+              await loadAllSchedules();
+              renderBody();
+            } catch (e) { toast(e.message, 'err'); }
+          },
+        }, 'Approve All'));
+      }
     }
     wrap.appendChild(header);
 
@@ -750,11 +767,29 @@
               recordEdit(key,
                 { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d },
                 prevVal, input.value, serverVal);
-              // Keep amber if pending review OR locally dirty
               input.classList.toggle('cell-dirty',
                 input.value !== serverVal || isPendingReview);
             });
             td.appendChild(input);
+            // Owner-only: small approve button on amber cells
+            if (isOwner() && isPendingReview) {
+              const approveBtn = el('button', {
+                class: 'cell-approve-btn',
+                title: 'Approve this shift',
+                onclick: async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api(`/api/schedules/${data.schedule.id}/approve-cell`, {
+                      method: 'POST',
+                      body: { employee_id: emp.id, day_index: d },
+                    });
+                    input.classList.remove('cell-dirty');
+                    approveBtn.remove();
+                  } catch (err) { toast(err.message, 'err'); }
+                },
+              }, '\u2713');
+              td.appendChild(approveBtn);
+            }
           } else {
             const div = el('div', { class: 'day-readonly' }, cellVal || '—');
             div.style.color = cellColorFor(cellVal);

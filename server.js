@@ -199,8 +199,10 @@ async function audit(user, action, clubId, team, details) {
   } catch (e) {
     console.error('[audit] failed to record', action, e.message);
   }
-  // Also queue an email notification (non-blocking, never throws)
-  queueEmail(userLabel(user), action, details || {});
+  // Only email on Send for Review — not on every cell edit
+  if (action === 'schedule_published') {
+    queueEmail(userLabel(user), action, details || {});
+  }
 }
 
 // Authoritative list of manual-total locations per club. The frontend uses
@@ -445,6 +447,42 @@ app.post('/api/clubs/:id/publish', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Owner approves the entire schedule for a week. Works the same way as
+// schedule_published from a baseline perspective — resets the amber state.
+app.post('/api/clubs/:id/approve', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const clubId = Number(req.params.id);
+  const { week_start } = req.body || {};
+  if (!week_start) return res.status(400).json({ error: 'week_start required' });
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
+  await audit(user, 'schedule_published', clubId, null, {
+    week_start,
+    club_name: clubRows[0] ? clubRows[0].name : '',
+    message: 'Approved by owner',
+  });
+  res.json({ ok: true });
+}));
+
+// Owner approves a single cell (clears amber for just that shift).
+app.post('/api/schedules/:id/approve-cell', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const scheduleId = Number(req.params.id);
+  const { employee_id, day_index } = req.body || {};
+  if (employee_id == null || day_index == null) return res.status(400).json({ error: 'employee_id and day_index required' });
+  const { rows: schedRows } = await pool.query(
+    'SELECT club_id, week_start FROM schedules WHERE id = $1', [scheduleId]);
+  if (!schedRows[0]) return res.status(404).json({ error: 'schedule not found' });
+  const sched = schedRows[0];
+  const weekStart = sched.week_start instanceof Date
+    ? sched.week_start.toISOString().slice(0, 10) : sched.week_start;
+  await audit(user, 'cell_approved', sched.club_id, null, {
+    employee_id, day_index, week_start,
+  });
+  res.json({ ok: true });
+}));
+
 // ---------- clubs ----------
 app.get('/api/clubs', ah(async (req, res) => {
   const { rows } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
@@ -627,12 +665,20 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   const sinceDate = lastPublishedAt || '1970-01-01';
   const { rows: pendingCells } = await pool.query(
     `SELECT DISTINCT
-       (details->>'employee_id')::int AS employee_id,
-       (details->>'day_index')::int   AS day_index
-     FROM audit_log
-     WHERE club_id = $1 AND action = 'cell_edit'
-       AND details->>'week_start' = $2
-       AND created_at > $3`,
+       (a.details->>'employee_id')::int AS employee_id,
+       (a.details->>'day_index')::int   AS day_index
+     FROM audit_log a
+     WHERE a.club_id = $1 AND a.action = 'cell_edit'
+       AND a.details->>'week_start' = $2
+       AND a.created_at > $3
+       AND NOT EXISTS (
+         SELECT 1 FROM audit_log b
+         WHERE b.club_id = $1 AND b.action = 'cell_approved'
+           AND b.details->>'week_start' = $2
+           AND (b.details->>'employee_id')::int = (a.details->>'employee_id')::int
+           AND (b.details->>'day_index')::int = (a.details->>'day_index')::int
+           AND b.created_at > a.created_at
+       )`,
     [clubId, weekStart, sinceDate]
   );
   const { rows: pendingTotals } = await pool.query(
