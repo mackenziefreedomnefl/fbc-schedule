@@ -111,6 +111,24 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   background: rgba(245, 158, 11, 0.12) !important;
   border-left: 2px solid var(--warn) !important;
 }
+.day-cell { position: relative; }
+.cell-approve-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 50%;
+  background: var(--ok);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.cell-approve-btn:hover { opacity: 1; }
 
 .shift-notice-text { flex: 1; white-space: pre-wrap; }
 .shift-notice-edit { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
