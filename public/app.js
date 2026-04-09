@@ -623,6 +623,11 @@
           onclick: () => openPublishModal(club, data),
         }, 'Send for Review'));
       }
+      // Slack sync button — any signed-in user
+      header.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => openSlackSyncModal(club, data),
+      }, 'Sync time-off'));
     }
     wrap.appendChild(header);
 
@@ -1359,6 +1364,8 @@
         const msg = d.message ? ` — "${d.message}"` : '';
         return `sent ${club || d.club_name || 'club'}${team} schedule for review — week of ${d.week_start}${msg}`;
       }
+      case 'time_off_applied':
+        return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
       case 'user_create':
         return `created user ${d.email} (${d.role}${d.team ? ', ' + d.team : ''})`;
       case 'user_update':
@@ -1368,6 +1375,88 @@
       default:
         return e.action;
     }
+  }
+
+  // -------- Slack sync modal --------
+  async function openSlackSyncModal(club, data) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Sync time-off — ${club.name}`));
+    content.appendChild(el('p', { class: 'muted' },
+      'Scanning the Slack time-off channel for requests in the last 7 days…'));
+
+    const listEl = el('div');
+    content.appendChild(listEl);
+
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(errDiv);
+
+    const actions = el('div', { class: 'modal-actions' });
+    actions.appendChild(el('button', { onclick: closeModal }, 'Cancel'));
+    content.appendChild(actions);
+
+    openModal(content, { wide: true });
+
+    // Fetch parsed entries from Slack
+    let result;
+    try {
+      result = await api(`/api/slack/time-off?week=${data.schedule.week_start}`);
+    } catch (e) {
+      errDiv.textContent = e.message;
+      return;
+    }
+
+    const entries = (result.entries || []).filter(e =>
+      Number(e.club_id) === Number(club.id));
+
+    if (!entries.length) {
+      listEl.appendChild(el('div', { class: 'muted' },
+        `No time-off requests found for ${club.name} in ${result.message_count} messages.`));
+      return;
+    }
+
+    // Show preview
+    listEl.innerHTML = '';
+    listEl.appendChild(el('p', {},
+      `Found ${entries.length} request${entries.length === 1 ? '' : 's'} from ${result.message_count} messages:`));
+
+    const checkboxes = [];
+    entries.forEach((entry, i) => {
+      const row = el('div', { style: 'padding:6px 0; border-bottom:1px solid var(--border);' });
+      const cb = el('input', { type: 'checkbox', checked: true, id: `slack-cb-${i}` });
+      const dates = entry.dates.map(d => {
+        const dt = new Date(d + 'T00:00:00');
+        return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      }).join(', ');
+      row.appendChild(cb);
+      row.appendChild(el('label', { for: `slack-cb-${i}`, style: 'margin-left:8px;cursor:pointer;' },
+        `${entry.name} — Req Off: ${dates}`));
+      row.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-left:26px;' },
+        `"${entry.raw.slice(0, 120)}${entry.raw.length > 120 ? '…' : ''}"`));
+      listEl.appendChild(row);
+      checkboxes.push({ cb, entry });
+    });
+
+    // Replace cancel-only actions with apply + cancel
+    actions.innerHTML = '';
+    actions.appendChild(el('button', { onclick: closeModal }, 'Cancel'));
+    actions.appendChild(el('button', {
+      class: 'primary',
+      onclick: async () => {
+        const selected = checkboxes.filter(c => c.cb.checked).map(c => c.entry);
+        if (!selected.length) { errDiv.textContent = 'Nothing selected'; return; }
+        errDiv.textContent = '';
+        try {
+          const result = await api('/api/slack/apply-time-off', {
+            method: 'POST',
+            body: { entries: selected },
+          });
+          closeModal();
+          toast(`Applied ${result.applied} time-off cell${result.applied === 1 ? '' : 's'}`);
+          await loadAllSchedules();
+          renderBody();
+        } catch (e) { errDiv.textContent = e.message; }
+      },
+    }, 'Apply selected'));
   }
 
   // -------- publish modal --------
