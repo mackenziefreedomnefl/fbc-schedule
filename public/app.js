@@ -562,26 +562,28 @@
 
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
       header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
-      header.appendChild(el('button', {
-        class: 'primary',
-        onclick: () => openPublishModal(club, data),
-      }, 'Send for Review'));
-      // Owner-only: approve everything at once
-      if (isOwner() && data && data.review_status !== 'sent') {
+      if (isOwner()) {
+        // Owners get Publish (acts as approve) instead of Send for Review
         header.appendChild(el('button', {
-          class: 'ghost',
+          class: 'primary',
           onclick: async () => {
             try {
               await api(`/api/clubs/${club.id}/approve`, {
                 method: 'POST',
                 body: { week_start: data.schedule.week_start },
               });
-              toast('Approved');
+              toast('Published');
               await loadAllSchedules();
               renderBody();
             } catch (e) { toast(e.message, 'err'); }
           },
-        }, 'Approve All'));
+        }, 'Publish'));
+      } else {
+        // Managers get Send for Review
+        header.appendChild(el('button', {
+          class: 'primary',
+          onclick: () => openPublishModal(club, data),
+        }, 'Send for Review'));
       }
     }
     wrap.appendChild(header);
