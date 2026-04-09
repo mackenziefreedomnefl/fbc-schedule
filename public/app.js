@@ -626,9 +626,9 @@
       wrap.appendChild(panel);
     }
 
-    // Draft toolbar (Undo / Redo / Save Draft) — only shown under the
-    // first club (Jacksonville) so it's not duplicated on the page.
-    if (isLoggedIn() && showWeekHeading) {
+    // Draft toolbar (Undo / Redo / Save Draft) — shown under every club
+    // so the user doesn't have to scroll back up to save.
+    if (isLoggedIn()) {
       const draftBar = el('div', { class: 'draft-toolbar' });
       const count = state.pendingChanges.size;
       draftBar.appendChild(el('span', { class: 'draft-count muted' },
