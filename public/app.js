@@ -678,7 +678,7 @@
 
       const listEl = el('div', { class: 'recent-updates-list' });
       const renderRow = (u) => {
-        const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' ? ' recent-publish' : '') });
+        const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' || u.action === 'schedule_submitted' ? ' recent-publish' : '') });
         row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
         row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
         row.appendChild(el('span', {}, describeAuditEntry({
@@ -730,12 +730,18 @@
       if (count) {
         statusText = `${count} unsaved change${count === 1 ? '' : 's'}`;
         statusClass = 'review-badge draft';
-      } else if (rs === 'sent') {
-        statusText = isOwner() ? 'Approved' : 'Sent for review';
+      } else if (rs === 'approved') {
+        statusText = isOwner() ? 'Approved' : 'Approved';
         statusClass = 'review-badge sent';
-      } else {
-        statusText = isOwner() ? 'Changes awaiting your approval' : 'Saved — not yet sent for review';
+      } else if (rs === 'submitted') {
+        statusText = isOwner() ? 'Changes awaiting your approval' : 'Sent for review — awaiting approval';
         statusClass = 'review-badge pending';
+      } else if (rs === 'changes_pending') {
+        statusText = isOwner() ? 'New changes since last approval' : 'Changes since last approval — send for review';
+        statusClass = 'review-badge pending';
+      } else {
+        statusText = isOwner() ? 'Draft — not yet submitted' : 'Draft — not yet sent for review';
+        statusClass = 'review-badge draft';
       }
       draftBar.appendChild(el('span', { class: statusClass }, statusText));
       draftBar.appendChild(el('button', {
@@ -1329,7 +1335,7 @@
 
     const appendEntries = (entries) => {
       entries.forEach(e => {
-        const row = el('div', { class: 'activity-row' + (e.action === 'schedule_published' ? ' activity-publish' : '') });
+        const row = el('div', { class: 'activity-row' + (e.action === 'schedule_published' || e.action === 'schedule_submitted' ? ' activity-publish' : '') });
         row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(e.created_at)));
         row.appendChild(el('div', { class: 'activity-who muted' }, e.user_label));
         row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry(e)));
@@ -1391,9 +1397,12 @@
         return `updated ${d.employee_name} in ${club}${team}`;
       case 'employee_archive':
         return `archived ${d.employee_name} from ${club}${team}`;
-      case 'schedule_published': {
+      case 'schedule_submitted': {
         const msg = d.message ? ` — "${d.message}"` : '';
         return `sent ${club || d.club_name || 'club'}${team} schedule for review — week of ${d.week_start}${msg}`;
+      }
+      case 'schedule_published': {
+        return `approved ${club || d.club_name || 'club'}${team} schedule — week of ${d.week_start}`;
       }
       case 'time_off_applied':
         return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;

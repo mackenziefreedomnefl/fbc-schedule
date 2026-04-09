@@ -101,9 +101,12 @@ function describeEmailEvent(e) {
     case 'employee_add': return `added ${d.employee_name} to ${d.team || 'roster'}`;
     case 'employee_update': return `updated ${d.employee_name}`;
     case 'employee_archive': return `archived ${d.employee_name}`;
-    case 'schedule_published': {
+    case 'schedule_submitted': {
       const msg = d.message ? ` — "${d.message}"` : '';
       return `sent ${d.club_name || 'club'} schedule for review — week of ${d.week_start || '?'}${msg}`;
+    }
+    case 'schedule_published': {
+      return `approved ${d.club_name || 'club'} schedule — week of ${d.week_start || '?'}`;
     }
     case 'notice_edit': return `updated the shift notice`;
     case 'time_off_applied': return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
@@ -201,7 +204,7 @@ async function audit(user, action, clubId, team, details) {
     console.error('[audit] failed to record', action, e.message);
   }
   // Only email on Send for Review — not on every cell edit
-  if (action === 'schedule_published') {
+  if (action === 'schedule_submitted' || action === 'schedule_published') {
     queueEmail(userLabel(user), action, details || {});
   }
 }
@@ -390,8 +393,8 @@ app.get('/api/audit', ah(async (req, res) => {
 app.get('/api/notifications', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
-  const params = ['schedule_published'];
-  let where = "action = $1 AND created_at >= NOW() - INTERVAL '14 days'";
+  const params = [['schedule_published', 'schedule_submitted']];
+  let where = "action = ANY($1) AND created_at >= NOW() - INTERVAL '14 days'";
   if (!isOwner(user) && user.club_id) {
     params.push(user.club_id);
     where += ' AND club_id = $2';
@@ -428,9 +431,8 @@ app.put('/api/notice', ah(async (req, res) => {
   res.json({ ok: true, text: value });
 }));
 
-// Manager publishes a finished schedule. Any user who can edit the club can
-// call it; we record a schedule_published audit entry which powers owner
-// notifications and shows up in the activity feed.
+// Manager sends schedule for review. Does NOT clear amber — only owner
+// approval (schedule_published) does that. Triggers email notification.
 app.post('/api/clubs/:id/publish', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
@@ -442,7 +444,7 @@ app.post('/api/clubs/:id/publish', ah(async (req, res) => {
   if (!week_start) return res.status(400).json({ error: 'week_start required' });
   const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
   const clubName = clubRows[0] ? clubRows[0].name : '';
-  await audit(user, 'schedule_published', clubId, user.team || null, {
+  await audit(user, 'schedule_submitted', clubId, user.team || null, {
     week_start,
     club_name: clubName,
     team: user.team || null,
@@ -634,7 +636,7 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
        FROM audit_log
       WHERE club_id = $1
         AND (
-          (action IN ('cell_edit','notes_edit','total_edit','schedule_published')
+          (action IN ('cell_edit','notes_edit','total_edit','schedule_published','schedule_submitted')
             AND details->>'week_start' = $2)
           OR (action IN ('employee_add','employee_update','employee_archive')
             AND created_at > NOW() - INTERVAL '7 days')
@@ -651,20 +653,35 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   }));
   const lastUpdate = recentUpdates[0] || null;
 
-  // Review status: has this week's schedule been sent for review, and have
-  // there been edits since the last review?
-  const { rows: publishRows } = await pool.query(
+  // Review status — 4 states:
+  //   draft          = no submissions or approvals yet
+  //   submitted      = manager sent for review, owner hasn't approved
+  //   changes_pending = owner approved but new edits since
+  //   approved       = owner approved and no edits since
+  const { rows: approveRows } = await pool.query(
     `SELECT created_at FROM audit_log
       WHERE club_id = $1 AND action = 'schedule_published'
         AND details->>'week_start' = $2
       ORDER BY created_at DESC LIMIT 1`,
     [clubId, weekStart]
   );
-  const lastPublishedAt = publishRows[0] ? publishRows[0].created_at : null;
-  let reviewStatus = 'draft'; // never sent for review
-  if (lastPublishedAt) {
-    reviewStatus = new Date(schedule.updated_at) > new Date(lastPublishedAt)
-      ? 'changes_pending' : 'sent';
+  const { rows: submitRows } = await pool.query(
+    `SELECT created_at FROM audit_log
+      WHERE club_id = $1 AND action = 'schedule_submitted'
+        AND details->>'week_start' = $2
+      ORDER BY created_at DESC LIMIT 1`,
+    [clubId, weekStart]
+  );
+  const lastPublishedAt = approveRows[0] ? approveRows[0].created_at : null;
+  const lastSubmittedAt = submitRows[0] ? submitRows[0].created_at : null;
+  const updatedAt = new Date(schedule.updated_at);
+  let reviewStatus = 'draft';
+  if (lastPublishedAt && updatedAt <= new Date(lastPublishedAt)) {
+    reviewStatus = 'approved';
+  } else if (lastPublishedAt && updatedAt > new Date(lastPublishedAt)) {
+    reviewStatus = 'changes_pending';
+  } else if (lastSubmittedAt) {
+    reviewStatus = 'submitted';
   }
 
   // Cells edited since the last send-for-review — powers the amber
