@@ -522,8 +522,19 @@
         }, 'Switch location'));
         body.appendChild(switchBar);
 
+        // Club header + staff search + recent changes shown ONCE
+        const firstData = (state.weekData['current'] || {})[selectedClub.id];
+        body.appendChild(renderStaffHeader(selectedClub, firstData));
+
+        // Then just the schedule grids for each week (no repeated headers)
         WEEK_KEYS.forEach(weekKey => {
-          body.appendChild(renderClubSection(selectedClub, weekKey, true));
+          const data = (state.weekData[weekKey] || {})[selectedClub.id];
+          if (!data) return;
+          const section = el('div', { class: 'staff-week-section' });
+          section.appendChild(el('div', { class: 'club-week-heading' },
+            WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+          section.appendChild(buildScheduleGrid(selectedClub, data));
+          body.appendChild(section);
         });
       }
     }
@@ -623,11 +634,6 @@
           onclick: () => openPublishModal(club, data),
         }, 'Send for Review'));
       }
-      // Slack sync button — any signed-in user
-      header.appendChild(el('button', {
-        class: 'ghost',
-        onclick: () => openSlackSyncModal(club, data),
-      }, 'Sync time-off'));
     }
     wrap.appendChild(header);
 
@@ -1377,86 +1383,74 @@
     }
   }
 
-  // -------- Slack sync modal --------
-  async function openSlackSyncModal(club, data) {
-    const content = el('div');
-    content.appendChild(el('h2', {}, `Sync time-off — ${club.name}`));
-    content.appendChild(el('p', { class: 'muted' },
-      'Scanning the Slack time-off channel for requests in the last 7 days…'));
+  // Renders a single club header for the staff view — shown once above
+  // all the stacked week grids instead of repeating per-week.
+  function renderStaffHeader(club, data) {
+    const wrap = el('div', { class: 'staff-header-section' });
 
-    const listEl = el('div');
-    content.appendChild(listEl);
+    const header = el('div', { class: 'club-header' });
+    header.appendChild(el('h2', {}, club.name));
 
-    const errDiv = el('div', { class: 'error' });
-    content.appendChild(errDiv);
-
-    const actions = el('div', { class: 'modal-actions' });
-    actions.appendChild(el('button', { onclick: closeModal }, 'Cancel'));
-    content.appendChild(actions);
-
-    openModal(content, { wide: true });
-
-    // Fetch parsed entries from Slack
-    let result;
-    try {
-      result = await api(`/api/slack/time-off?week=${data.schedule.week_start}`);
-    } catch (e) {
-      errDiv.textContent = e.message;
-      return;
-    }
-
-    const entries = (result.entries || []).filter(e =>
-      Number(e.club_id) === Number(club.id));
-
-    if (!entries.length) {
-      listEl.appendChild(el('div', { class: 'muted' },
-        `No time-off requests found for ${club.name} in ${result.message_count} messages.`));
-      return;
-    }
-
-    // Show preview
-    listEl.innerHTML = '';
-    listEl.appendChild(el('p', {},
-      `Found ${entries.length} request${entries.length === 1 ? '' : 's'} from ${result.message_count} messages:`));
-
-    const checkboxes = [];
-    entries.forEach((entry, i) => {
-      const row = el('div', { style: 'padding:6px 0; border-bottom:1px solid var(--border);' });
-      const cb = el('input', { type: 'checkbox', checked: true, id: `slack-cb-${i}` });
-      const dates = entry.dates.map(d => {
-        const dt = new Date(d + 'T00:00:00');
-        return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-      }).join(', ');
-      row.appendChild(cb);
-      row.appendChild(el('label', { for: `slack-cb-${i}`, style: 'margin-left:8px;cursor:pointer;' },
-        `${entry.name} — Req Off: ${dates}`));
-      row.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-left:26px;' },
-        `"${entry.raw.slice(0, 120)}${entry.raw.length > 120 ? '…' : ''}"`));
-      listEl.appendChild(row);
-      checkboxes.push({ cb, entry });
+    const filterWrap = el('div', { class: 'name-filter-wrap' });
+    filterWrap.appendChild(el('label', { class: 'name-filter-label' }, 'Staff Search'));
+    const filterInput = el('input', {
+      type: 'search',
+      class: 'name-filter',
+      autocomplete: 'off',
     });
+    filterInput.value = state.filter || '';
+    filterInput.addEventListener('input', () => {
+      state.filter = filterInput.value;
+      document.querySelectorAll('.name-filter').forEach(other => {
+        if (other !== filterInput) other.value = state.filter;
+      });
+      applyNameFilter();
+    });
+    filterWrap.appendChild(filterInput);
+    header.appendChild(filterWrap);
+    wrap.appendChild(header);
 
-    // Replace cancel-only actions with apply + cancel
-    actions.innerHTML = '';
-    actions.appendChild(el('button', { onclick: closeModal }, 'Cancel'));
-    actions.appendChild(el('button', {
-      class: 'primary',
-      onclick: async () => {
-        const selected = checkboxes.filter(c => c.cb.checked).map(c => c.entry);
-        if (!selected.length) { errDiv.textContent = 'Nothing selected'; return; }
-        errDiv.textContent = '';
-        try {
-          const result = await api('/api/slack/apply-time-off', {
-            method: 'POST',
-            body: { entries: selected },
+    // Recent changes — show once
+    if (data) {
+      const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
+      if (updates.length) {
+        const panel = el('div', { class: 'recent-updates' });
+        panel.appendChild(el('div', { class: 'recent-updates-title muted' },
+          `Recent changes (${updates.length})`));
+        const listEl = el('div', { class: 'recent-updates-list' });
+        const renderRow = (u) => {
+          const row = el('div', { class: 'recent-updates-row' });
+          row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
+          row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
+          row.appendChild(el('span', {}, describeAuditEntry({
+            action: u.action, details: u.details || {},
+            club_name: club.name, team: (u.details || {}).team || null,
+          })));
+          return row;
+        };
+        listEl.appendChild(renderRow(updates[0]));
+        panel.appendChild(listEl);
+        if (updates.length > 1) {
+          const toggle = el('button', { class: 'ghost recent-updates-toggle' });
+          let expanded = false;
+          toggle.textContent = `View more (${updates.length - 1})`;
+          toggle.addEventListener('click', () => {
+            expanded = !expanded;
+            if (expanded) {
+              updates.slice(1).forEach(u => listEl.appendChild(renderRow(u)));
+              toggle.textContent = 'Hide';
+            } else {
+              while (listEl.children.length > 1) listEl.removeChild(listEl.lastChild);
+              toggle.textContent = `View more (${updates.length - 1})`;
+            }
           });
-          closeModal();
-          toast(`Applied ${result.applied} time-off cell${result.applied === 1 ? '' : 's'}`);
-          await loadAllSchedules();
-          renderBody();
-        } catch (e) { errDiv.textContent = e.message; }
-      },
-    }, 'Apply selected'));
+          panel.appendChild(toggle);
+        }
+        wrap.appendChild(panel);
+      }
+    }
+
+    return wrap;
   }
 
   // -------- publish modal --------
