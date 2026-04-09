@@ -103,7 +103,7 @@ function describeEmailEvent(e) {
     case 'employee_archive': return `archived ${d.employee_name}`;
     case 'schedule_published': {
       const msg = d.message ? ` — "${d.message}"` : '';
-      return `published ${d.club_name || 'club'} schedule for week of ${d.week_start || '?'}${msg}`;
+      return `sent ${d.club_name || 'club'} schedule for review — week of ${d.week_start || '?'}${msg}`;
     }
     case 'notice_edit': return `updated the shift notice`;
     case 'user_create': return `created user ${d.email} (${d.role || '?'})`;
