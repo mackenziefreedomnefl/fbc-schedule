@@ -478,7 +478,7 @@ app.post('/api/schedules/:id/approve-cell', ah(async (req, res) => {
   const weekStart = sched.week_start instanceof Date
     ? sched.week_start.toISOString().slice(0, 10) : sched.week_start;
   await audit(user, 'cell_approved', sched.club_id, null, {
-    employee_id, day_index, week_start,
+    employee_id, day_index, week_start: weekStart,
   });
   res.json({ ok: true });
 }));
