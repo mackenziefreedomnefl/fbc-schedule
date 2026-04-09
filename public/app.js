@@ -538,9 +538,18 @@
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
-    if (canEditClub(club.id) || (isLoggedIn() && state.me.club_id === club.id)) {
-      header.appendChild(el('span', { class: 'edit-chip' },
-        isOwner() ? 'Owner edit' : `Editing ${state.me.team || ''}`.trim()));
+    // Review status badge — visible to everyone so owners can see at a
+    // glance whether a manager has sent this week for review or if there
+    // are unsent changes.
+    if (data) {
+      const rs = data.review_status || 'draft';
+      const badgeMap = {
+        draft: { class: 'review-badge draft', text: 'Draft — not sent for review' },
+        changes_pending: { class: 'review-badge pending', text: 'Changes pending review' },
+        sent: { class: 'review-badge sent', text: 'Sent for review' },
+      };
+      const badge = badgeMap[rs] || badgeMap.draft;
+      header.appendChild(el('span', { class: badge.class }, badge.text));
     }
 
     // Per-club Staff Search input. Both clubs share the same state.filter,
@@ -555,7 +564,6 @@
     filterInput.value = state.filter || '';
     filterInput.addEventListener('input', () => {
       state.filter = filterInput.value;
-      // Mirror the value into every other staff search input on the page
       document.querySelectorAll('.name-filter').forEach(other => {
         if (other !== filterInput) other.value = state.filter;
       });
@@ -566,10 +574,13 @@
 
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
       header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
-      header.appendChild(el('button', {
-        class: 'primary',
-        onclick: () => openPublishModal(club, data),
-      }, 'Send for Review'));
+      // Managers see Send for Review; owners already see the status badge
+      if (!isOwner()) {
+        header.appendChild(el('button', {
+          class: 'primary',
+          onclick: () => openPublishModal(club, data),
+        }, 'Send for Review'));
+      }
     }
     wrap.appendChild(header);
 

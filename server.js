@@ -604,6 +604,22 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   }));
   const lastUpdate = recentUpdates[0] || null;
 
+  // Review status: has this week's schedule been sent for review, and have
+  // there been edits since the last review?
+  const { rows: publishRows } = await pool.query(
+    `SELECT created_at FROM audit_log
+      WHERE club_id = $1 AND action = 'schedule_published'
+        AND details->>'week_start' = $2
+      ORDER BY created_at DESC LIMIT 1`,
+    [clubId, weekStart]
+  );
+  const lastPublishedAt = publishRows[0] ? publishRows[0].created_at : null;
+  let reviewStatus = 'draft'; // never sent for review
+  if (lastPublishedAt) {
+    reviewStatus = new Date(schedule.updated_at) > new Date(lastPublishedAt)
+      ? 'changes_pending' : 'sent';
+  }
+
   res.json({
     schedule: {
       id: schedule.id,
@@ -618,6 +634,7 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     shifts: shiftMap,
     locations: locationsForClubName(clubRow[0] ? clubRow[0].name : ''),
     totals: totalsMap,
+    review_status: reviewStatus,
     last_update: lastUpdate,
     recent_updates: recentUpdates,
   });

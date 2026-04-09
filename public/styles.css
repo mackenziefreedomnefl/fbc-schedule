@@ -167,6 +167,32 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 /* Current/Next Work Week heading repeated above each club */
+/* Review status badges */
+.review-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--border);
+}
+.review-badge.draft {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(245, 158, 11, 0.10);
+}
+.review-badge.pending {
+  color: #f97316;
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.10);
+}
+.review-badge.sent {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(34, 197, 94, 0.10);
+}
+
 .club-week-heading {
   font-size: 18px;
   font-weight: 700;
