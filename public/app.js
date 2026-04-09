@@ -538,10 +538,8 @@
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
-    // Review status badge — visible to everyone so owners can see at a
-    // glance whether a manager has sent this week for review or if there
-    // are unsent changes.
-    if (data) {
+    // Review status badge — only visible to signed-in users (owners/managers)
+    if (isLoggedIn() && data) {
       const rs = data.review_status || 'draft';
       const badgeMap = {
         draft: { class: 'review-badge draft', text: 'Draft — not sent for review' },
