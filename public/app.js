@@ -538,17 +538,7 @@
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
-    // Review status badge — only visible to signed-in users (owners/managers)
-    if (isLoggedIn() && data) {
-      const rs = data.review_status || 'draft';
-      const badgeMap = {
-        draft: { class: 'review-badge draft', text: 'Draft — not sent for review' },
-        changes_pending: { class: 'review-badge pending', text: 'Changes pending review' },
-        sent: { class: 'review-badge sent', text: 'Sent for review' },
-      };
-      const badge = badgeMap[rs] || badgeMap.draft;
-      header.appendChild(el('span', { class: badge.class }, badge.text));
-    }
+    // Review status badge moved into the draft toolbar below
 
     // Per-club Staff Search input. Both clubs share the same state.filter,
     // so typing in either box filters every employee across both clubs.
@@ -654,8 +644,23 @@
     if (isLoggedIn()) {
       const draftBar = el('div', { class: 'draft-toolbar' });
       const count = state.pendingChanges.size;
-      draftBar.appendChild(el('span', { class: 'draft-count muted' },
-        count ? `${count} unsaved change${count === 1 ? '' : 's'}` : 'No changes'));
+      // Show review status + unsaved count in the same line
+      const rs = data ? (data.review_status || 'draft') : 'draft';
+      const statusText = {
+        draft: 'Draft — not sent for review',
+        changes_pending: 'Changes pending review',
+        sent: 'Sent for review',
+      }[rs] || '';
+      const statusClass = {
+        draft: 'review-badge draft',
+        changes_pending: 'review-badge pending',
+        sent: 'review-badge sent',
+      }[rs] || 'review-badge draft';
+      draftBar.appendChild(el('span', { class: statusClass }, statusText));
+      if (count) {
+        draftBar.appendChild(el('span', { class: 'draft-count muted' },
+          `${count} unsaved change${count === 1 ? '' : 's'}`));
+      }
       draftBar.appendChild(el('button', {
         class: 'draft-undo', disabled: !state.undoStack.length,
         onclick: undo,
