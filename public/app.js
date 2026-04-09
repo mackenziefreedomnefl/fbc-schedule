@@ -465,11 +465,12 @@
     if (isLoggedIn()) {
       // Manager / owner view: tabs flip the whole page between current
       // and next week, one week visible at a time.
+      // Managers only see their assigned club; owners see everything.
+      const visibleClubs = (!isOwner() && state.me.club_id)
+        ? state.clubs.filter(c => Number(c.id) === Number(state.me.club_id))
+        : state.clubs;
       body.appendChild(buildWeekTabs());
-      state.clubs.forEach((club, idx) => {
-        // Only the first club in the week group shows the week heading,
-        // so Jacksonville gets "Current/Next Work Week" and St. Augustine
-        // sits right below it without a duplicate label.
+      visibleClubs.forEach((club, idx) => {
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
       });
     } else {
@@ -527,13 +528,6 @@
     weekKey = weekKey || 'current';
     const data = (state.weekData[weekKey] || {})[club.id];
     const wrap = el('section', { class: 'club-section' });
-
-    // Show the Current/Next Work Week label only above the first club in
-    // a week group (Jacksonville). St. Augustine sits right below without a
-    // duplicate heading.
-    // Show Current/Next Work Week heading above every club's schedule
-    wrap.appendChild(el('div', { class: 'club-week-heading' },
-      WEEK_HEADINGS[weekKey] || 'Current Work Week'));
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
@@ -676,6 +670,11 @@
       }, 'Save Draft'));
       wrap.appendChild(draftBar);
     }
+
+    // Current/Next Work Week heading — sits below the draft toolbar,
+    // right above the date columns
+    wrap.appendChild(el('div', { class: 'club-week-heading' },
+      WEEK_HEADINGS[weekKey] || 'Current Work Week'));
 
     wrap.appendChild(buildScheduleGrid(club, data));
     // Totals are a management-only view. Regular staff visiting without an
