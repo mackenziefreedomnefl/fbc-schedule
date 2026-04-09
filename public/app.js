@@ -246,7 +246,13 @@
         toast(err.message, 'err');
       }
     }
-    if (ok) toast(`Saved ${ok} change${ok === 1 ? '' : 's'}`);
+    if (ok) {
+      toast(`Saved ${ok} change${ok === 1 ? '' : 's'}`);
+      if (!isOwner()) {
+        // Remind managers to send for review after saving
+        setTimeout(() => toast('Don\'t forget to Send for Review when you\'re done'), 1500);
+      }
+    }
     if (failed) toast(`${failed} change${failed === 1 ? '' : 's'} failed`, 'err');
     updateDraftToolbar();
     // Reload data so server state matches what we just saved
@@ -255,17 +261,24 @@
   }
 
   function updateDraftToolbar() {
-    const bar = document.querySelector('.draft-toolbar');
-    if (!bar) return;
-    const count = state.pendingChanges.size;
-    const label = bar.querySelector('.draft-count');
-    const saveBtn = bar.querySelector('.draft-save');
-    const undoBtn = bar.querySelector('.draft-undo');
-    const redoBtn = bar.querySelector('.draft-redo');
-    if (label) label.textContent = count ? `${count} unsaved change${count === 1 ? '' : 's'}` : 'No changes';
-    if (saveBtn) saveBtn.disabled = !count;
-    if (undoBtn) undoBtn.disabled = !state.undoStack.length;
-    if (redoBtn) redoBtn.disabled = !state.redoStack.length;
+    // Update every draft toolbar on the page (one per club)
+    document.querySelectorAll('.draft-toolbar').forEach(bar => {
+      const count = state.pendingChanges.size;
+      const badge = bar.querySelector('.review-badge');
+      const saveBtn = bar.querySelector('.draft-save');
+      const undoBtn = bar.querySelector('.draft-undo');
+      const redoBtn = bar.querySelector('.draft-redo');
+      if (badge) {
+        if (count) {
+          badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
+          badge.className = 'review-badge draft';
+        }
+        // When count goes to 0 the full re-render after saveDraft handles the text
+      }
+      if (saveBtn) saveBtn.disabled = !count;
+      if (undoBtn) undoBtn.disabled = !state.undoStack.length;
+      if (redoBtn) redoBtn.disabled = !state.redoStack.length;
+    });
   }
 
   // Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Shift+Z / Ctrl+Y = redo, Ctrl+S = save
@@ -641,23 +654,24 @@
     if (isLoggedIn()) {
       const draftBar = el('div', { class: 'draft-toolbar' });
       const count = state.pendingChanges.size;
-      // Show review status + unsaved count in the same line
       const rs = data ? (data.review_status || 'draft') : 'draft';
-      const statusText = {
-        draft: isOwner() ? 'Draft — not sent for review' : 'Draft — not sent for review',
-        changes_pending: isOwner() ? 'Changes awaiting your approval' : 'Changes pending review',
-        sent: isOwner() ? 'Approved' : 'Sent for review',
-      }[rs] || '';
-      const statusClass = {
-        draft: 'review-badge draft',
-        changes_pending: 'review-badge pending',
-        sent: 'review-badge sent',
-      }[rs] || 'review-badge draft';
-      draftBar.appendChild(el('span', { class: statusClass }, statusText));
+
+      // Three-state indicator:
+      // 1. Local unsaved edits → amber "UNSAVED CHANGES"
+      // 2. Saved but not reviewed → orange "SAVED — NOT YET SENT FOR REVIEW"
+      // 3. Reviewed → green "SENT FOR REVIEW" / "APPROVED"
+      let statusText, statusClass;
       if (count) {
-        draftBar.appendChild(el('span', { class: 'draft-count muted' },
-          `${count} unsaved change${count === 1 ? '' : 's'}`));
+        statusText = `${count} unsaved change${count === 1 ? '' : 's'}`;
+        statusClass = 'review-badge draft';
+      } else if (rs === 'sent') {
+        statusText = isOwner() ? 'Approved' : 'Sent for review';
+        statusClass = 'review-badge sent';
+      } else {
+        statusText = isOwner() ? 'Changes awaiting your approval' : 'Saved — not yet sent for review';
+        statusClass = 'review-badge pending';
       }
+      draftBar.appendChild(el('span', { class: statusClass }, statusText));
       draftBar.appendChild(el('button', {
         class: 'draft-undo', disabled: !state.undoStack.length,
         onclick: undo,
