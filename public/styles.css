@@ -91,6 +91,27 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   align-items: flex-start;
   gap: 10px;
 }
+/* Draft toolbar: Save Draft + Undo + Redo */
+.draft-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  position: sticky;
+  top: 56px;
+  z-index: 9;
+}
+.draft-count { font-size: 13px; margin-right: auto; }
+.draft-toolbar button { font-size: 13px; }
+.cell-dirty {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-left: 2px solid var(--warn) !important;
+}
+
 .shift-notice-text { flex: 1; white-space: pre-wrap; }
 .shift-notice-edit { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
 

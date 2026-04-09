@@ -32,14 +32,18 @@
   };
 
   const state = {
-    me: { id: null },                     // current user (or { id: null })
-    clubs: [],                            // [{ id, name }]
-    tab: 'current',                       // one of WEEK_KEYS (signed-in only)
-    weekStart: null,                      // YYYY-MM-DD derived from tab
-    // Loaded schedules keyed by week then club. For signed-in users only the
-    // active tab's week is filled; for anonymous staff all configured weeks
-    // are loaded so every week can be rendered stacked.
+    me: { id: null },
+    clubs: [],
+    tab: 'current',
+    weekStart: null,
     weekData: { current: {}, next: {}, week3: {} },
+    // Draft / undo-redo state. pendingChanges is a Map keyed by
+    // "scheduleId:empId:dayIndex" (or "T:scheduleId:loc:dayIndex" for totals).
+    // Each value = { schedule_id, employee_id|null, location|null, day_index,
+    //               shift_text, server_value }
+    pendingChanges: new Map(),
+    undoStack: [],   // [ { key, old_value, new_value, server_value, ...ids } ]
+    redoStack: [],
   };
 
   // -------- dom helpers --------
@@ -159,6 +163,127 @@
   function canEditEmployee(/* employee */) { return isLoggedIn(); }
   function canEditTeam(/* clubId, team */) { return isLoggedIn(); }
   function canEditClub(/* clubId */) { return isLoggedIn(); }
+
+  // -------- draft / undo / redo --------
+  function cellKey(scheduleId, empId, dayIndex) {
+    return `${scheduleId}:${empId}:${dayIndex}`;
+  }
+  function totalKey(scheduleId, loc, dayIndex) {
+    return `T:${scheduleId}:${loc}:${dayIndex}`;
+  }
+
+  function recordEdit(key, ids, oldVal, newVal, serverVal) {
+    state.undoStack.push({ key, ...ids, old_value: oldVal, new_value: newVal, server_value: serverVal });
+    state.redoStack = [];
+    if (newVal === serverVal) {
+      state.pendingChanges.delete(key);
+    } else {
+      state.pendingChanges.set(key, { ...ids, shift_text: newVal, server_value: serverVal });
+    }
+    updateDraftToolbar();
+  }
+
+  function applyUndoRedo(entry, valueToSet) {
+    const inp = document.querySelector(`[data-cell-key="${entry.key}"]`);
+    if (inp) {
+      inp.value = valueToSet;
+      inp.style.color = cellColorFor(valueToSet);
+    }
+    if (valueToSet === entry.server_value) {
+      state.pendingChanges.delete(entry.key);
+    } else {
+      state.pendingChanges.set(entry.key, {
+        schedule_id: entry.schedule_id,
+        employee_id: entry.employee_id || null,
+        location: entry.location || null,
+        day_index: entry.day_index,
+        shift_text: valueToSet,
+        server_value: entry.server_value,
+      });
+    }
+    updateDraftToolbar();
+  }
+
+  function undo() {
+    if (!state.undoStack.length) return;
+    const entry = state.undoStack.pop();
+    state.redoStack.push(entry);
+    applyUndoRedo(entry, entry.old_value);
+  }
+
+  function redo() {
+    if (!state.redoStack.length) return;
+    const entry = state.redoStack.pop();
+    state.undoStack.push(entry);
+    applyUndoRedo(entry, entry.new_value);
+  }
+
+  async function saveDraft() {
+    if (!state.pendingChanges.size) return;
+    const changes = Array.from(state.pendingChanges.values());
+    state.pendingChanges.clear();
+    state.undoStack = [];
+    state.redoStack = [];
+
+    let ok = 0;
+    let failed = 0;
+    for (const c of changes) {
+      try {
+        if (c.location) {
+          await api(`/api/schedules/${c.schedule_id}/total`, {
+            method: 'PATCH',
+            body: { location: c.location, day_index: c.day_index, count_text: c.shift_text },
+          });
+        } else {
+          await api(`/api/schedules/${c.schedule_id}/cell`, {
+            method: 'PATCH',
+            body: { employee_id: c.employee_id, day_index: c.day_index, shift_text: c.shift_text },
+          });
+        }
+        ok++;
+      } catch (err) {
+        failed++;
+        toast(err.message, 'err');
+      }
+    }
+    if (ok) toast(`Saved ${ok} change${ok === 1 ? '' : 's'}`);
+    if (failed) toast(`${failed} change${failed === 1 ? '' : 's'} failed`, 'err');
+    updateDraftToolbar();
+    // Reload data so server state matches what we just saved
+    await loadAllSchedules();
+    renderBody();
+  }
+
+  function updateDraftToolbar() {
+    const bar = document.querySelector('.draft-toolbar');
+    if (!bar) return;
+    const count = state.pendingChanges.size;
+    const label = bar.querySelector('.draft-count');
+    const saveBtn = bar.querySelector('.draft-save');
+    const undoBtn = bar.querySelector('.draft-undo');
+    const redoBtn = bar.querySelector('.draft-redo');
+    if (label) label.textContent = count ? `${count} unsaved change${count === 1 ? '' : 's'}` : 'No changes';
+    if (saveBtn) saveBtn.disabled = !count;
+    if (undoBtn) undoBtn.disabled = !state.undoStack.length;
+    if (redoBtn) redoBtn.disabled = !state.redoStack.length;
+  }
+
+  // Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Shift+Z / Ctrl+Y = redo, Ctrl+S = save
+  document.addEventListener('keydown', (e) => {
+    if (!isLoggedIn()) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (mod && (e.key === 'Z' || e.key === 'y')) { e.preventDefault(); redo(); }
+    else if (mod && e.key === 's') { e.preventDefault(); saveDraft(); }
+  });
+
+  // Warn if leaving the page with unsaved changes
+  window.addEventListener('beforeunload', (e) => {
+    if (state.pendingChanges.size) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   // -------- modal --------
   function openModal(content, opts = {}) {
@@ -338,6 +463,25 @@
     body.appendChild(notice);
 
     if (isLoggedIn()) {
+      // Draft toolbar: Save Draft + Undo + Redo
+      const draftBar = el('div', { class: 'draft-toolbar' });
+      const count = state.pendingChanges.size;
+      draftBar.appendChild(el('span', { class: 'draft-count muted' },
+        count ? `${count} unsaved change${count === 1 ? '' : 's'}` : 'No changes'));
+      draftBar.appendChild(el('button', {
+        class: 'draft-undo', disabled: !state.undoStack.length,
+        onclick: undo,
+      }, 'Undo'));
+      draftBar.appendChild(el('button', {
+        class: 'draft-redo', disabled: !state.redoStack.length,
+        onclick: redo,
+      }, 'Redo'));
+      draftBar.appendChild(el('button', {
+        class: 'primary draft-save', disabled: !count,
+        onclick: saveDraft,
+      }, 'Save Draft'));
+      body.appendChild(draftBar);
+
       // Manager / owner view: tabs flip the whole page between current
       // and next week, one week visible at a time.
       body.appendChild(buildWeekTabs());
@@ -572,25 +716,23 @@
         row.appendChild(el('td', { class: 'name-cell' }, emp.name));
         for (let d = 0; d < 7; d++) {
           const td = el('td', { class: 'day-cell' });
-          const cellVal = (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+          const key = cellKey(data.schedule.id, emp.id, d);
+          const serverVal = (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+          const pending = state.pendingChanges.get(key);
+          const cellVal = pending ? pending.shift_text : serverVal;
           if (editable) {
-            const input = el('input', { type: 'text', placeholder: '—' });
+            const input = el('input', { type: 'text', 'data-cell-key': key });
             input.value = cellVal;
             input.style.color = cellColorFor(cellVal);
-            let t;
+            if (pending) input.classList.add('cell-dirty');
             input.addEventListener('input', () => {
               input.style.color = cellColorFor(input.value);
-              clearTimeout(t);
-              t = setTimeout(async () => {
-                try {
-                  await api(`/api/schedules/${data.schedule.id}/cell`, {
-                    method: 'PATCH',
-                    body: { employee_id: emp.id, day_index: d, shift_text: input.value },
-                  });
-                  data.shifts[emp.id] = data.shifts[emp.id] || {};
-                  data.shifts[emp.id][d] = input.value;
-                } catch (err) { toast(err.message, 'err'); }
-              }, 350);
+              const prevVal = state.pendingChanges.has(key)
+                ? state.pendingChanges.get(key).shift_text : serverVal;
+              recordEdit(key,
+                { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d },
+                prevVal, input.value, serverVal);
+              input.classList.toggle('cell-dirty', input.value !== serverVal);
             });
             td.appendChild(input);
           } else {
@@ -635,24 +777,21 @@
       tr.appendChild(el('td', { class: 'totals-loc' }, loc));
       for (let d = 0; d < 7; d++) {
         const td = el('td', { class: 'totals-cell' });
-        const val = (data.totals && data.totals[loc] && data.totals[loc][d]) || '';
+        const tKey = totalKey(data.schedule.id, loc, d);
+        const serverVal = (data.totals && data.totals[loc] && data.totals[loc][d]) || '';
+        const pending = state.pendingChanges.get(tKey);
+        const val = pending ? pending.shift_text : serverVal;
         if (editable) {
-          const input = el('input', { type: 'text', placeholder: '—', inputmode: 'numeric' });
+          const input = el('input', { type: 'text', inputmode: 'numeric', 'data-cell-key': tKey });
           input.value = val;
-          let t;
+          if (pending) input.classList.add('cell-dirty');
           input.addEventListener('input', () => {
-            clearTimeout(t);
-            t = setTimeout(async () => {
-              try {
-                await api(`/api/schedules/${data.schedule.id}/total`, {
-                  method: 'PATCH',
-                  body: { location: loc, day_index: d, count_text: input.value },
-                });
-                data.totals = data.totals || {};
-                data.totals[loc] = data.totals[loc] || {};
-                data.totals[loc][d] = input.value;
-              } catch (err) { toast(err.message, 'err'); }
-            }, 350);
+            const prevVal = state.pendingChanges.has(tKey)
+              ? state.pendingChanges.get(tKey).shift_text : serverVal;
+            recordEdit(tKey,
+              { schedule_id: data.schedule.id, location: loc, day_index: d },
+              prevVal, input.value, serverVal);
+            input.classList.toggle('cell-dirty', input.value !== serverVal);
           });
           td.appendChild(input);
         } else {
