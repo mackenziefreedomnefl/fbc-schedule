@@ -451,16 +451,18 @@
       return;
     }
 
-    // Static notice that applies to every schedule
-    const notice = el('div', { class: 'shift-notice' });
-    notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
-    if (isOwner()) {
-      notice.appendChild(el('button', {
-        class: 'ghost shift-notice-edit',
-        onclick: openNoticeModal,
-      }, 'Edit'));
+    // Static notice — only for anonymous staff and owners (managers skip it)
+    if (!isLoggedIn() || isOwner()) {
+      const notice = el('div', { class: 'shift-notice' });
+      notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
+      if (isOwner()) {
+        notice.appendChild(el('button', {
+          class: 'ghost shift-notice-edit',
+          onclick: openNoticeModal,
+        }, 'Edit'));
+      }
+      body.appendChild(notice);
     }
-    body.appendChild(notice);
 
     if (isLoggedIn()) {
       // Manager / owner view: tabs flip the whole page between current
