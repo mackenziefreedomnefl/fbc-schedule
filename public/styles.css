@@ -111,6 +111,16 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   background: rgba(245, 158, 11, 0.12) !important;
   border-left: 2px solid var(--warn) !important;
 }
+/* Strikethrough showing what was removed — visible to signed-in users only */
+.cell-removed {
+  text-decoration: line-through;
+  color: var(--danger);
+  font-size: 11px;
+  opacity: 0.7;
+  padding: 0 8px 2px;
+  pointer-events: none;
+}
+
 .day-cell { position: relative; }
 .cell-approve-btn {
   position: absolute;
