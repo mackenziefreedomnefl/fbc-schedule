@@ -542,20 +542,28 @@ function parseTimeOffMessage(text, employees, weekMonday) {
     }
   }
 
-  // Match "Month Day" patterns (April 10, Apr 10)
+  // Match "Month Day" patterns with optional ordinal suffixes and ranges:
+  // "May 10th", "April 18th", "June 5th", "May 7-9", "May 7th-9th"
   const monthNames = ['january','february','march','april','may','june',
     'july','august','september','october','november','december'];
   const monthAbbrs = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   for (let mi = 0; mi < 12; mi++) {
     const patterns = [monthNames[mi], monthAbbrs[mi]];
     for (const pat of patterns) {
-      const regex = new RegExp(pat + '\\s+(\\d{1,2})', 'gi');
+      // Match: "May 10th", "May 7-9", "May 7th-9th", "May 10"
+      const regex = new RegExp(
+        pat + '\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*[-–]\\s*(\\d{1,2})(?:st|nd|rd|th)?)?',
+        'gi'
+      );
       let dm;
       while ((dm = regex.exec(text)) !== null) {
-        const day = parseInt(dm[1], 10);
-        if (day >= 1 && day <= 31) {
-          const year = new Date().getFullYear();
-          dates.push(`${year}-${String(mi + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+        const startDay = parseInt(dm[1], 10);
+        const endDay = dm[2] ? parseInt(dm[2], 10) : startDay;
+        const year = new Date().getFullYear();
+        for (let day = startDay; day <= endDay && day <= 31; day++) {
+          if (day >= 1) {
+            dates.push(`${year}-${String(mi + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+          }
         }
       }
     }
