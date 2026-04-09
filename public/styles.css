@@ -245,6 +245,19 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   border-radius: 8px;
 }
 
+/* Admin club picker */
+.admin-club-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.admin-club-picker button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .club-week-heading {
   font-size: 18px;
   font-weight: 700;

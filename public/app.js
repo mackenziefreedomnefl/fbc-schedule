@@ -38,6 +38,7 @@
     weekStart: null,
     weekData: { current: {}, next: {}, week3: {} },
     staffClubId: null,  // anonymous staff: which club they selected to view
+    adminClubId: null,  // owner: which club to view (null = all)
     // Draft / undo-redo state. pendingChanges is a Map keyed by
     // "scheduleId:empId:dayIndex" (or "T:scheduleId:loc:dayIndex" for totals).
     // Each value = { schedule_id, employee_id|null, location|null, day_index,
@@ -481,10 +482,34 @@
     if (isLoggedIn()) {
       // Manager / owner view: tabs flip the whole page between current
       // and next week, one week visible at a time.
-      // Managers only see their assigned club; owners see everything.
-      const visibleClubs = (!isOwner() && state.me.club_id)
-        ? state.clubs.filter(c => Number(c.id) === Number(state.me.club_id))
-        : state.clubs;
+      // Managers only see their assigned club; owners can pick.
+      let visibleClubs;
+      if (!isOwner() && state.me.club_id) {
+        visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.me.club_id));
+      } else if (isOwner() && state.adminClubId) {
+        visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.adminClubId));
+      } else {
+        visibleClubs = state.clubs;
+      }
+
+      // Owner club picker
+      if (isOwner()) {
+        const pickerBar = el('div', { class: 'admin-club-picker' });
+        pickerBar.appendChild(el('span', { class: 'muted' }, 'Viewing:'));
+        const allBtn = el('button', {
+          class: 'ghost' + (!state.adminClubId ? ' active' : ''),
+          onclick: () => { state.adminClubId = null; renderBody(); },
+        }, 'All');
+        pickerBar.appendChild(allBtn);
+        state.clubs.forEach(c => {
+          pickerBar.appendChild(el('button', {
+            class: 'ghost' + (state.adminClubId === c.id ? ' active' : ''),
+            onclick: () => { state.adminClubId = c.id; renderBody(); },
+          }, c.name));
+        });
+        body.appendChild(pickerBar);
+      }
+
       body.appendChild(buildWeekTabs());
       visibleClubs.forEach((club, idx) => {
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
