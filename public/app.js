@@ -453,14 +453,66 @@
     chip.innerHTML = '';
     if (isLoggedIn()) {
       const label = state.me.name || state.me.email;
-      const role = isOwner() ? 'Owner' : `Manager · ${state.me.team || '—'}`;
-      chip.appendChild(el('span', { class: 'muted' }, `${label} · ${role}`));
+      const role = isOwner() ? 'Owner' : 'Manager';
+      chip.appendChild(el('span', { class: 'muted topbar-label' }, `${label} · ${role}`));
+
+      // Club picker (owners only)
       if (isOwner()) {
-        chip.appendChild(el('button', { class: 'ghost', onclick: openAdminPanel }, 'Admin'));
+        chip.appendChild(el('span', { class: 'muted' }, 'Viewing:'));
+        chip.appendChild(el('button', {
+          class: 'ghost topbar-btn' + (!state.adminClubId ? ' active' : ''),
+          onclick: () => { state.adminClubId = null; renderBody(); },
+        }, 'All'));
+        state.clubs.forEach(c => {
+          chip.appendChild(el('button', {
+            class: 'ghost topbar-btn' + (state.adminClubId === c.id ? ' active' : ''),
+            onclick: () => { state.adminClubId = c.id; renderBody(); },
+          }, c.name));
+        });
       }
-      chip.appendChild(el('button', { class: 'ghost', onclick: openChangePasswordModal }, 'Change password'));
+
+      // Staff Search
+      const filterInput = el('input', {
+        type: 'search',
+        class: 'name-filter topbar-filter',
+        placeholder: 'Staff Search',
+        autocomplete: 'off',
+      });
+      filterInput.value = state.filter || '';
+      filterInput.addEventListener('input', () => {
+        state.filter = filterInput.value;
+        document.querySelectorAll('.name-filter').forEach(other => {
+          if (other !== filterInput) other.value = state.filter;
+        });
+        applyNameFilter();
+      });
+      chip.appendChild(filterInput);
+
+      // Manage roster — determine which club(s) to offer
+      const visibleClubs = (!isOwner() && state.me.club_id)
+        ? state.clubs.filter(c => Number(c.id) === Number(state.me.club_id))
+        : (state.adminClubId ? state.clubs.filter(c => c.id === state.adminClubId) : state.clubs);
+      visibleClubs.forEach(c => {
+        chip.appendChild(el('button', {
+          class: 'ghost topbar-btn',
+          onclick: () => openRosterModal(c),
+        }, visibleClubs.length > 1 ? `Roster: ${c.name}` : 'Manage roster'));
+      });
+
+      // View Live Schedule
+      chip.appendChild(el('a', {
+        href: '?view=staff',
+        target: '_blank',
+        class: 'ghost topbar-btn',
+        style: 'text-decoration:none;',
+      }, 'Live Schedule'));
+
+      if (isOwner()) {
+        chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openAdminPanel }, 'Admin'));
+      }
+      chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openChangePasswordModal }, 'Password'));
       chip.appendChild(el('button', {
-        class: 'ghost',
+        class: 'ghost topbar-btn',
         onclick: async () => {
           try { await api('/api/logout', { method: 'POST' }); } catch (_) {}
           state.me = { id: null };
@@ -515,9 +567,8 @@
     }
 
     if (isLoggedIn()) {
-      // Manager / owner view: tabs flip the whole page between current
-      // and next week, one week visible at a time.
-      // Managers only see their assigned club; owners can pick.
+      // Club picker + staff search + manage roster + live schedule all
+      // moved to the topbar. Just render the schedule sections here.
       let visibleClubs;
       if (!isOwner() && state.me.club_id) {
         visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.me.club_id));
@@ -526,33 +577,6 @@
       } else {
         visibleClubs = state.clubs;
       }
-
-      // Owner club picker
-      if (isOwner()) {
-        const pickerBar = el('div', { class: 'admin-club-picker' });
-        pickerBar.appendChild(el('span', { class: 'muted' }, 'Viewing:'));
-        const allBtn = el('button', {
-          class: 'ghost' + (!state.adminClubId ? ' active' : ''),
-          onclick: () => { state.adminClubId = null; renderBody(); },
-        }, 'All');
-        pickerBar.appendChild(allBtn);
-        state.clubs.forEach(c => {
-          pickerBar.appendChild(el('button', {
-            class: 'ghost' + (state.adminClubId === c.id ? ' active' : ''),
-            onclick: () => { state.adminClubId = c.id; renderBody(); },
-          }, c.name));
-        });
-        body.appendChild(pickerBar);
-      }
-
-      // "View Live Schedule" link so owners/managers can see what staff see
-      body.appendChild(el('div', { style: 'margin-bottom:10px;' },
-        el('a', {
-          href: '?view=staff',
-          target: '_blank',
-          class: 'ghost',
-          style: 'font-size:13px;color:var(--accent);',
-        }, 'View Live Schedule (staff view) →')));
 
       visibleClubs.forEach((club, idx) => {
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
@@ -655,36 +679,15 @@
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
-    // Review status badge moved into the draft toolbar below
 
-    // Per-club Staff Search input. Both clubs share the same state.filter,
-    // so typing in either box filters every employee across both clubs.
-    const filterWrap = el('div', { class: 'name-filter-wrap' });
-    filterWrap.appendChild(el('label', { class: 'name-filter-label' }, 'Staff Search'));
-    const filterInput = el('input', {
-      type: 'search',
-      class: 'name-filter',
-      autocomplete: 'off',
-    });
-    filterInput.value = state.filter || '';
-    filterInput.addEventListener('input', () => {
-      state.filter = filterInput.value;
-      document.querySelectorAll('.name-filter').forEach(other => {
-        if (other !== filterInput) other.value = state.filter;
-      });
-      applyNameFilter();
-    });
-    filterWrap.appendChild(filterInput);
-    header.appendChild(filterWrap);
+    if (isLoggedIn() && data) {
+      header.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => { window.location.href = `/api/export/csv?club_id=${club.id}&week=${data.schedule.week_start}`; },
+      }, 'CSV'));
+    }
 
     if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
-      header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
-      if (data) {
-        header.appendChild(el('button', {
-          class: 'ghost',
-          onclick: () => { window.location.href = `/api/export/csv?club_id=${club.id}&week=${data.schedule.week_start}`; },
-        }, 'CSV'));
-      }
       if (isOwner()) {
         // Owners get Publish (acts as approve) instead of Send for Review
         header.appendChild(el('button', {
