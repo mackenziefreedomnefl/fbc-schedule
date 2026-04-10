@@ -158,12 +158,16 @@
   }
 
   // -------- permission helpers --------
-  function isOwner() { return state.me && (state.me.role === 'owner' || state.me.role === 'admin'); }
-  const STAFF_VIEW_MODE = new URLSearchParams(window.location.search).has('view') &&
-    new URLSearchParams(window.location.search).get('view') === 'staff';
+  const _viewParam = new URLSearchParams(window.location.search).get('view');
+  const STAFF_VIEW_MODE = _viewParam === 'staff';
+  const MANAGER_VIEW_MODE = _viewParam === 'manager';
   function isLoggedIn() {
-    if (STAFF_VIEW_MODE) return false; // force staff view
+    if (STAFF_VIEW_MODE) return false;
     return state.me && state.me.id != null;
+  }
+  function isOwner() {
+    if (MANAGER_VIEW_MODE) return false; // force manager view
+    return state.me && (state.me.role === 'owner' || state.me.role === 'admin');
   }
   // Any signed-in user (owner or manager) can edit every club and every
   // team. Per-location restrictions were removed on request.
@@ -495,6 +499,16 @@
         class: 'ghost topbar-btn',
         style: 'text-decoration:none;',
       }, 'Live Schedule'));
+
+      // View as Manager (owners only)
+      if (isOwner()) {
+        chip.appendChild(el('a', {
+          href: '?view=manager',
+          target: '_blank',
+          class: 'ghost topbar-btn',
+          style: 'text-decoration:none;',
+        }, 'View as Manager'));
+      }
 
       if (isOwner()) {
         chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openAdminPanel }, 'Admin'));
