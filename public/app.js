@@ -614,8 +614,16 @@
           const data = (state.weekData[weekKey] || {})[selectedClub.id];
           if (!data) return;
           const section = el('div', { class: 'staff-week-section' });
-          section.appendChild(el('div', { class: 'club-week-heading' },
-            WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+          const heading = el('div', { class: 'club-week-heading' });
+          heading.appendChild(el('span', {}, WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+          if (data.recent_updates && data.recent_updates.length) {
+            heading.appendChild(el('button', {
+              class: 'ghost',
+              style: 'font-size:12px;',
+              onclick: () => openWeekActivityModal(selectedClub, data),
+            }, `Activity (${data.recent_updates.length})`));
+          }
+          section.appendChild(heading);
           section.appendChild(buildScheduleGrid(selectedClub, data));
           body.appendChild(section);
         });
