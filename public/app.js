@@ -753,7 +753,7 @@
       draftBar.appendChild(el('button', {
         class: 'ghost',
         onclick: () => openRosterModal(club),
-      }, 'Roster'));
+      }, 'Manage Roster'));
 
       // Publish (owner) / Send for Review (manager)
       // Disabled while there are unsaved local changes — must Save Draft first
