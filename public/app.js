@@ -488,17 +488,6 @@
       });
       chip.appendChild(filterInput);
 
-      // Manage roster — determine which club(s) to offer
-      const visibleClubs = (!isOwner() && state.me.club_id)
-        ? state.clubs.filter(c => Number(c.id) === Number(state.me.club_id))
-        : (state.adminClubId ? state.clubs.filter(c => c.id === state.adminClubId) : state.clubs);
-      visibleClubs.forEach(c => {
-        chip.appendChild(el('button', {
-          class: 'ghost topbar-btn',
-          onclick: () => openRosterModal(c),
-        }, visibleClubs.length > 1 ? `Roster: ${c.name}` : 'Manage roster'));
-      });
-
       // View Live Schedule
       chip.appendChild(el('a', {
         href: '?view=staff',
@@ -510,7 +499,7 @@
       if (isOwner()) {
         chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openAdminPanel }, 'Admin'));
       }
-      chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openChangePasswordModal }, 'Password'));
+      chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openChangePasswordModal }, 'Account'));
       chip.appendChild(el('button', {
         class: 'ghost topbar-btn',
         onclick: async () => {
@@ -687,31 +676,6 @@
       }, 'CSV'));
     }
 
-    if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
-      if (isOwner()) {
-        // Owners get Publish (acts as approve) instead of Send for Review
-        header.appendChild(el('button', {
-          class: 'primary',
-          onclick: async () => {
-            try {
-              await api(`/api/clubs/${club.id}/approve`, {
-                method: 'POST',
-                body: { week_start: data.schedule.week_start },
-              });
-              toast('Published');
-              await loadAllSchedules();
-              renderBody();
-            } catch (e) { toast(e.message, 'err'); }
-          },
-        }, 'Publish'));
-      } else {
-        // Managers get Send for Review
-        header.appendChild(el('button', {
-          class: 'primary',
-          onclick: () => openPublishModal(club, data),
-        }, 'Send for Review'));
-      }
-    }
     wrap.appendChild(header);
 
     if (!data) {
@@ -806,6 +770,38 @@
         class: 'primary draft-save', disabled: !clubCount,
         onclick: () => saveDraftForClub(club.id),
       }, 'Save Draft'));
+
+      // Manage roster
+      draftBar.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => openRosterModal(club),
+      }, 'Roster'));
+
+      // Publish (owner) / Send for Review (manager)
+      // Disabled while there are unsaved local changes — must Save Draft first
+      const hasSavedChanges = !clubCount && (rs === 'draft' || rs === 'changes_pending' || rs === 'submitted');
+      if (isOwner()) {
+        draftBar.appendChild(el('button', {
+          class: 'primary', disabled: clubCount > 0,
+          onclick: async () => {
+            try {
+              await api(`/api/clubs/${club.id}/approve`, {
+                method: 'POST',
+                body: { week_start: data.schedule.week_start },
+              });
+              toast('Published');
+              await loadAllSchedules();
+              renderBody();
+            } catch (e) { toast(e.message, 'err'); }
+          },
+        }, 'Publish'));
+      } else {
+        draftBar.appendChild(el('button', {
+          class: 'primary', disabled: clubCount > 0,
+          onclick: () => openPublishModal(club, data),
+        }, 'Send for Review'));
+      }
+
       wrap.appendChild(draftBar);
     }
 
