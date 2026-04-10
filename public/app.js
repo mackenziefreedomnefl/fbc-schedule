@@ -763,11 +763,12 @@
         onclick: () => saveDraftForClub(club.id),
       }, 'Save Draft'));
 
-      // Manage roster
+      // Add/Remove Staff — pushed to far right
+      draftBar.appendChild(el('div', { class: 'spacer' }));
       draftBar.appendChild(el('button', {
         class: 'ghost',
         onclick: () => openRosterModal(club),
-      }, 'Manage Roster'));
+      }, 'Add/Remove Staff'));
 
       // Publish (owner) / Send for Review (manager)
       // Disabled/faded while unsaved changes exist. Turns green when ready.
