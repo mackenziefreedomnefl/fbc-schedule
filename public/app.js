@@ -186,8 +186,7 @@
   // ids must include club_id so undo/redo/save scope per-club
   function recordEdit(key, ids, oldVal, newVal, serverVal) {
     state.undoStack.push({ key, ...ids, old_value: oldVal, new_value: newVal, server_value: serverVal });
-    // Clear redo only for this club
-    state.redoStack = state.redoStack.filter(e => e.club_id !== ids.club_id);
+    state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== Number(ids.club_id));
     if (newVal === serverVal) {
       state.pendingChanges.delete(key);
     } else {
@@ -219,8 +218,9 @@
   }
 
   function undoForClub(clubId) {
+    const cid = Number(clubId);
     for (let i = state.undoStack.length - 1; i >= 0; i--) {
-      if (state.undoStack[i].club_id === clubId) {
+      if (Number(state.undoStack[i].club_id) === cid) {
         const entry = state.undoStack.splice(i, 1)[0];
         state.redoStack.push(entry);
         applyUndoRedo(entry, entry.old_value);
@@ -230,8 +230,9 @@
   }
 
   function redoForClub(clubId) {
+    const cid = Number(clubId);
     for (let i = state.redoStack.length - 1; i >= 0; i--) {
-      if (state.redoStack[i].club_id === clubId) {
+      if (Number(state.redoStack[i].club_id) === cid) {
         const entry = state.redoStack.splice(i, 1)[0];
         state.undoStack.push(entry);
         applyUndoRedo(entry, entry.new_value);
@@ -241,26 +242,30 @@
   }
 
   function countForClub(clubId) {
+    const cid = Number(clubId);
     let n = 0;
-    state.pendingChanges.forEach(v => { if (v.club_id === clubId) n++; });
+    state.pendingChanges.forEach(v => { if (Number(v.club_id) === cid) n++; });
     return n;
   }
   function undoCountForClub(clubId) {
-    return state.undoStack.filter(e => e.club_id === clubId).length;
+    const cid = Number(clubId);
+    return state.undoStack.filter(e => Number(e.club_id) === cid).length;
   }
   function redoCountForClub(clubId) {
-    return state.redoStack.filter(e => e.club_id === clubId).length;
+    const cid = Number(clubId);
+    return state.redoStack.filter(e => Number(e.club_id) === cid).length;
   }
 
   async function saveDraftForClub(clubId) {
+    const cid = Number(clubId);
     const changes = [];
     state.pendingChanges.forEach((v, k) => {
-      if (v.club_id === clubId) changes.push({ key: k, ...v });
+      if (Number(v.club_id) === cid) changes.push({ key: k, ...v });
     });
     if (!changes.length) return;
     changes.forEach(c => state.pendingChanges.delete(c.key));
-    state.undoStack = state.undoStack.filter(e => e.club_id !== clubId);
-    state.redoStack = state.redoStack.filter(e => e.club_id !== clubId);
+    state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== cid);
+    state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== cid);
 
     let ok = 0;
     let failed = 0;
@@ -618,9 +623,12 @@
         }, 'Switch location'));
         body.appendChild(switchBar);
 
-        // Club header + staff search + recent changes shown ONCE
-        const firstData = (state.weekData['current'] || {})[selectedClub.id];
-        body.appendChild(renderStaffHeader(selectedClub, firstData));
+        // Owner's notice shown on staff front end
+        body.appendChild(el('div', { class: 'shift-notice' },
+          el('div', { class: 'shift-notice-text' }, NOTICE_TEXT)));
+
+        // Club header + staff search shown ONCE
+        body.appendChild(renderStaffHeader(selectedClub));
 
         // Staff only see current + next week (not week after next)
         const STAFF_WEEKS = ['current', 'next'];
@@ -635,7 +643,7 @@
               class: 'ghost',
               style: 'font-size:12px;',
               onclick: () => openWeekActivityModal(selectedClub, data),
-            }, `Activity (${data.recent_updates.length})`));
+            }, 'View Recent Changes'));
           }
           section.appendChild(heading);
           section.appendChild(buildScheduleGrid(selectedClub, data));
@@ -1482,7 +1490,7 @@
 
   // Renders a single club header for the staff view — shown once above
   // all the stacked week grids instead of repeating per-week.
-  function renderStaffHeader(club, data) {
+  function renderStaffHeader(club) {
     const wrap = el('div', { class: 'staff-header-section' });
 
     const header = el('div', { class: 'club-header' });
@@ -1506,46 +1514,6 @@
     filterWrap.appendChild(filterInput);
     header.appendChild(filterWrap);
     wrap.appendChild(header);
-
-    // Recent changes — show once
-    if (data) {
-      const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
-      if (updates.length) {
-        const panel = el('div', { class: 'recent-updates' });
-        panel.appendChild(el('div', { class: 'recent-updates-title muted' },
-          `Recent changes (${updates.length})`));
-        const listEl = el('div', { class: 'recent-updates-list' });
-        const renderRow = (u) => {
-          const row = el('div', { class: 'recent-updates-row' });
-          row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
-          row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
-          row.appendChild(el('span', {}, describeAuditEntry({
-            action: u.action, details: u.details || {},
-            club_name: club.name, team: (u.details || {}).team || null,
-          })));
-          return row;
-        };
-        listEl.appendChild(renderRow(updates[0]));
-        panel.appendChild(listEl);
-        if (updates.length > 1) {
-          const toggle = el('button', { class: 'ghost recent-updates-toggle' });
-          let expanded = false;
-          toggle.textContent = `View more (${updates.length - 1})`;
-          toggle.addEventListener('click', () => {
-            expanded = !expanded;
-            if (expanded) {
-              updates.slice(1).forEach(u => listEl.appendChild(renderRow(u)));
-              toggle.textContent = 'Hide';
-            } else {
-              while (listEl.children.length > 1) listEl.removeChild(listEl.lastChild);
-              toggle.textContent = `View more (${updates.length - 1})`;
-            }
-          });
-          panel.appendChild(toggle);
-        }
-        wrap.appendChild(panel);
-      }
-    }
 
     return wrap;
   }
