@@ -1,13 +1,13 @@
-/* Dark theme */
+/* Light blue theme */
 :root {
-  --bg: #0f1216;
-  --panel: #161b22;
-  --panel-2: #1c2230;
-  --border: #4a5468;
-  --text: #e6e8ee;
-  --muted: #8b94a7;
-  --accent: #4c8bf5;
-  --accent-2: #3567c7;
+  --bg: #e8f0fe;
+  --panel: #ffffff;
+  --panel-2: #f0f4fa;
+  --border: #c4d0e0;
+  --text: #1a2233;
+  --muted: #5a6a80;
+  --accent: #2563eb;
+  --accent-2: #1d4ed8;
   --danger: #e5484d;
   --ok: #22c55e;
   --warn: #f59e0b;
@@ -654,9 +654,9 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     background: var(--panel);
     z-index: 2;
   }
-  .schedule-table tr.row-team-main td.name-cell { background: #151c2a; }
-  .schedule-table tr.row-team-2 td.name-cell   { background: #1c1829; }
-  .schedule-table tr.row-team-shared td.name-cell { background: #142319; }
+  .schedule-table tr.row-team-main td.name-cell { background: #dce8f8; }
+  .schedule-table tr.row-team-2 td.name-cell   { background: #e8ddf5; }
+  .schedule-table tr.row-team-shared td.name-cell { background: #d5f0df; }
   .schedule-table td.day-cell { min-width: 88px; }
   .schedule-table td.day-cell input {
     padding: 6px 8px;
