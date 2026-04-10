@@ -56,6 +56,7 @@
       if (k === 'class') n.className = v;
       else if (k === 'html') n.innerHTML = v;
       else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
+      else if (v === false) n.removeAttribute(k); // boolean false = don't set
       else if (v !== undefined && v !== null) n.setAttribute(k, v);
     }
     for (const c of [].concat(children)) {
