@@ -262,7 +262,16 @@
     state.pendingChanges.forEach((v, k) => {
       if (Number(v.club_id) === cid) changes.push({ key: k, ...v });
     });
-    if (!changes.length) return;
+    if (!changes.length) {
+      // Debug: show what's in the pending map
+      const total = state.pendingChanges.size;
+      if (total) {
+        const clubIds = new Set();
+        state.pendingChanges.forEach(v => clubIds.add(v.club_id));
+        toast(`No changes for club ${cid}. ${total} total pending for clubs: ${[...clubIds].join(', ')}`, 'err');
+      }
+      return;
+    }
     changes.forEach(c => state.pendingChanges.delete(c.key));
     state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== cid);
     state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== cid);
@@ -622,10 +631,6 @@
           onclick: () => { state.staffClubId = null; renderBody(); },
         }, 'Switch location'));
         body.appendChild(switchBar);
-
-        // Owner's notice shown on staff front end
-        body.appendChild(el('div', { class: 'shift-notice' },
-          el('div', { class: 'shift-notice-text' }, NOTICE_TEXT)));
 
         // Club header + staff search shown ONCE
         body.appendChild(renderStaffHeader(selectedClub));
