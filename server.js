@@ -876,7 +876,7 @@ app.get('/api/export/backup', ah(async (req, res) => {
   res.json({ exported_at: new Date().toISOString(), clubs, employees, schedules, shifts, totals, users });
 }));
 
-// PDF export of both clubs' schedules for a given week
+// PDF export of both clubs' schedules for a given week — one page
 const PDFDocument = require('pdfkit');
 app.get('/api/export/pdf', ah(async (req, res) => {
   const user = await loadUser(req);
@@ -891,14 +891,26 @@ app.get('/api/export/pdf', ah(async (req, res) => {
     return `${d} ${dt.getMonth()+1}/${dt.getDate()}`;
   });
 
-  const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 30 });
+  const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 20 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="FBC-Schedule-${weekStart}.pdf"`);
   doc.pipe(res);
 
+  // Title at top
+  doc.fontSize(14).font('Helvetica-Bold').fillColor('#0a1628')
+    .text('Freedom Boat Club NEFL — Schedule', { align: 'center' });
+  doc.fontSize(9).font('Helvetica').fillColor('#3a4a60')
+    .text(`Week of ${weekStart}`, { align: 'center' });
+  doc.moveDown(0.4);
+
+  const startX = 20;
+  const tableW = doc.page.width - 40;
+  const nameColW = 115;
+  const dayColW = Math.floor((tableW - nameColW) / 7);
+  let y = doc.y;
+
   for (let ci = 0; ci < clubs.length; ci++) {
     const club = clubs[ci];
-    if (ci > 0) doc.addPage();
 
     const { rows: emps } = await pool.query(
       'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [club.id]);
@@ -915,27 +927,24 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       }
     }
 
-    // Title
-    doc.fontSize(16).font('Helvetica-Bold').text(club.name, { align: 'center' });
-    doc.fontSize(10).font('Helvetica').text(`Week of ${weekStart}`, { align: 'center' });
-    doc.moveDown(0.5);
+    // Club name bar — dark navy background
+    if (y > doc.page.height - 60) { doc.addPage(); y = 20; }
+    doc.rect(startX, y, tableW, 16).fill('#0a1628');
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#ffffff')
+      .text(club.name, startX + 6, y + 3, { width: tableW - 12 });
+    y += 16;
 
-    // Table dimensions
-    const startX = 30;
-    const nameColW = 130;
-    const dayColW = Math.floor((doc.page.width - 60 - nameColW) / 7);
-    let y = doc.y;
-
-    // Header row
-    doc.fontSize(7).font('Helvetica-Bold');
-    doc.rect(startX, y, nameColW, 18).fill('#e8f0fe').stroke('#c4d0e0');
-    doc.fillColor('#1a2233').text('Employee', startX + 4, y + 5, { width: nameColW - 8 });
+    // Column headers — medium blue
+    const headerH = 15;
+    doc.rect(startX, y, nameColW, headerH).fill('#1e40af').stroke('#16327a');
+    doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('EMPLOYEE', startX + 4, y + 4, { width: nameColW - 8 });
     for (let d = 0; d < 7; d++) {
       const x = startX + nameColW + d * dayColW;
-      doc.rect(x, y, dayColW, 18).fill('#e8f0fe').stroke('#c4d0e0');
-      doc.fillColor('#1a2233').text(dayHeaders[d], x + 2, y + 5, { width: dayColW - 4, align: 'center' });
+      doc.rect(x, y, dayColW, headerH).fill('#1e40af').stroke('#16327a');
+      doc.fillColor('#ffffff').text(dayHeaders[d], x + 2, y + 4, { width: dayColW - 4, align: 'center' });
     }
-    y += 18;
+    y += headerH;
 
     // Group by team
     const groups = new Map();
@@ -950,40 +959,46 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
+    let rowIdx = 0;
     for (const teamName of sortedKeys) {
       // Team divider
       if (sortedKeys.length > 1 && teamName) {
-        if (y > doc.page.height - 50) { doc.addPage(); y = 30; }
-        doc.rect(startX, y, nameColW + dayColW * 7, 14).fill('#f0f4fa').stroke('#c4d0e0');
-        doc.fontSize(7).font('Helvetica-Bold').fillColor('#5a6a80');
-        doc.text(teamName.toUpperCase(), startX + 4, y + 3);
-        y += 14;
+        if (y > doc.page.height - 30) { doc.addPage(); y = 20; }
+        doc.rect(startX, y, tableW, 12).fill('#d0d8e8').stroke('#9aa8c0');
+        doc.fontSize(6).font('Helvetica-Bold').fillColor('#2a3a55')
+          .text(teamName.toUpperCase(), startX + 4, y + 2);
+        y += 12;
       }
 
       for (const emp of groups.get(teamName)) {
-        if (y > doc.page.height - 40) { doc.addPage(); y = 30; }
-        const rowH = 16;
+        if (y > doc.page.height - 25) { doc.addPage(); y = 20; }
+        const rowH = 13;
+        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#f0f4fa';
+
         // Name cell
-        doc.rect(startX, y, nameColW, rowH).stroke('#c4d0e0');
-        doc.fontSize(7).font('Helvetica').fillColor('#1a2233');
-        doc.text(emp.name, startX + 4, y + 4, { width: nameColW - 8 });
+        doc.rect(startX, y, nameColW, rowH).fill(rowBg).stroke('#b0bdd0');
+        doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#0a1628')
+          .text(emp.name, startX + 4, y + 3, { width: nameColW - 8 });
+
         // Day cells
         for (let d = 0; d < 7; d++) {
           const x = startX + nameColW + d * dayColW;
-          doc.rect(x, y, dayColW, rowH).stroke('#c4d0e0');
+          doc.rect(x, y, dayColW, rowH).fill(rowBg).stroke('#b0bdd0');
           const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
           if (val) {
-            // Color code
             const lower = val.toLowerCase();
-            if (lower.includes('req off')) doc.fillColor('#e5484d');
-            else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#2563eb');
-            else doc.fillColor('#1a2233');
-            doc.fontSize(6).text(val, x + 2, y + 4, { width: dayColW - 4, align: 'center' });
+            if (lower.includes('req off')) doc.fillColor('#cc2222');
+            else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#1e40af');
+            else doc.fillColor('#0a1628');
+            doc.fontSize(6).font('Helvetica').text(val, x + 2, y + 3, { width: dayColW - 4, align: 'center' });
           }
         }
         y += rowH;
+        rowIdx++;
       }
     }
+
+    y += 8; // gap between clubs
   }
 
   doc.end();
