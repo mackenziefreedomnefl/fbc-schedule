@@ -57,18 +57,30 @@ function queueEmail(userLabel, action, details) {
 async function flushEmail() {
   if (!emailBuffer.length || !smtpTransport) return;
   const events = emailBuffer.splice(0);
+
+  // Build subject: Location — Manager Name — action
+  const first = events[0];
+  const clubName = (first.details && first.details.club_name) || 'FBC NEFL';
+  const managerName = first.userLabel || 'A manager';
+  const action = first.action === 'schedule_submitted' ? 'sent schedule for review' : 'made changes';
+  const weekStart = (first.details && first.details.week_start) || '';
+  const subject = `${clubName} — ${managerName} ${action}${weekStart ? ' (week of ' + weekStart + ')' : ''}`;
+
+  // Build body
   const lines = events.map(e => {
-    const t = e.time.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true });
-    return `<li><strong>${t}</strong> — <em>${e.userLabel}</em>: ${describeEmailEvent(e)}</li>`;
+    const t = e.time.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    return `<li><strong>${t}</strong> — ${describeEmailEvent(e)}</li>`;
   }).join('');
-  const subject = events.length === 1
-    ? `FBC Schedule: ${events[0].userLabel} made a change`
-    : `FBC Schedule: ${events.length} new changes`;
+  const msg = (first.details && first.details.message) ? `<p style="margin:12px 0;padding:10px;background:#f0f4fa;border-radius:6px;"><strong>Note from ${managerName}:</strong> "${first.details.message}"</p>` : '';
   const html = `
-    <h2 style="margin:0 0 12px;">Freedom Boat Club NEFL Schedule</h2>
-    <p style="color:#666;margin:0 0 8px;">The following changes were made in the last minute:</p>
-    <ul style="padding-left:20px;">${lines}</ul>
-    <p style="margin-top:16px;"><a href="https://schedule.fbcnefl.com">Open Schedule Dashboard</a></p>
+    <h2 style="margin:0 0 4px;color:#1a2233;">${clubName}</h2>
+    <p style="margin:0 0 12px;color:#5a6a80;">${managerName} ${action}${weekStart ? ' for the week of ' + weekStart : ''}</p>
+    ${msg}
+    <h3 style="margin:16px 0 8px;font-size:14px;color:#5a6a80;">Changes:</h3>
+    <ul style="padding-left:20px;color:#1a2233;">${lines}</ul>
+    <p style="margin-top:20px;">
+      <a href="https://schedule.fbcnefl.com" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">View Schedule</a>
+    </p>
   `;
   try {
     await smtpTransport.sendMail({
