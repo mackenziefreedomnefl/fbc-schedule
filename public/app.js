@@ -769,11 +769,13 @@
       }, 'Manage Roster'));
 
       // Publish (owner) / Send for Review (manager)
-      // Disabled while there are unsaved local changes — must Save Draft first
-      const hasSavedChanges = !clubCount && (rs === 'draft' || rs === 'changes_pending' || rs === 'submitted');
+      // Disabled/faded while unsaved changes exist. Turns green when ready.
+      const readyToSend = !clubCount && (rs === 'draft' || rs === 'changes_pending');
+      const alreadySent = !clubCount && (rs === 'submitted' || rs === 'approved');
       if (isOwner()) {
         draftBar.appendChild(el('button', {
-          class: 'primary', disabled: clubCount > 0,
+          class: readyToSend ? 'btn-approve-ready' : 'primary',
+          disabled: clubCount > 0,
           onclick: async () => {
             try {
               await api(`/api/clubs/${club.id}/approve`, {
@@ -788,9 +790,10 @@
         }, 'Publish'));
       } else {
         draftBar.appendChild(el('button', {
-          class: 'primary', disabled: clubCount > 0,
+          class: readyToSend ? 'btn-review-ready' : 'primary',
+          disabled: clubCount > 0,
           onclick: () => openPublishModal(club, data),
-        }, 'Send for Review'));
+        }, alreadySent ? 'Sent for Review ✓' : 'Send for Review'));
       }
 
       wrap.appendChild(draftBar);
