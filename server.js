@@ -973,17 +973,18 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       for (const emp of groups.get(teamName)) {
         if (y > doc.page.height - 25) { doc.addPage(); y = 20; }
         const rowH = 13;
-        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#f0f4fa';
+        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#eef2f9';
 
-        // Name cell
-        doc.rect(startX, y, nameColW, rowH).fill(rowBg).stroke('#b0bdd0');
+        // Fill entire row background first
+        doc.rect(startX, y, tableW, rowH).fill(rowBg);
+
+        // Name cell text
         doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#0a1628')
           .text(emp.name, startX + 4, y + 3, { width: nameColW - 8 });
 
-        // Day cells
+        // Day cells text
         for (let d = 0; d < 7; d++) {
           const x = startX + nameColW + d * dayColW;
-          doc.rect(x, y, dayColW, rowH).fill(rowBg).stroke('#b0bdd0');
           const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
           if (val) {
             const lower = val.toLowerCase();
@@ -993,6 +994,19 @@ app.get('/api/export/pdf', ah(async (req, res) => {
             doc.fontSize(6).font('Helvetica').text(val, x + 2, y + 3, { width: dayColW - 4, align: 'center' });
           }
         }
+
+        // Draw grid lines ON TOP of the fill so they're always visible
+        doc.lineWidth(0.5).strokeColor('#8899aa');
+        // Horizontal line at bottom of row
+        doc.moveTo(startX, y + rowH).lineTo(startX + tableW, y + rowH).stroke();
+        // Vertical lines for each column
+        doc.moveTo(startX, y).lineTo(startX, y + rowH).stroke();
+        doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + rowH).stroke();
+        for (let d = 1; d <= 7; d++) {
+          const x = startX + nameColW + d * dayColW;
+          doc.moveTo(x, y).lineTo(x, y + rowH).stroke();
+        }
+
         y += rowH;
         rowIdx++;
       }
