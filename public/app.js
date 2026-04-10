@@ -710,8 +710,8 @@
     if (isLoggedIn() && data) {
       header.appendChild(el('button', {
         class: 'ghost',
-        onclick: () => { window.location.href = `/api/export/csv?club_id=${club.id}&week=${data.schedule.week_start}`; },
-      }, 'CSV'));
+        onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
+      }, 'PDF'));
     }
 
     wrap.appendChild(header);
