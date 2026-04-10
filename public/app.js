@@ -518,7 +518,8 @@
     // Anonymous staff see every configured week stacked, so we fetch all of
     // them. Signed-in managers/owners use tabs so we only fetch the active
     // week to keep the request count down.
-    const weeksToLoad = isLoggedIn() ? [state.tab] : WEEK_KEYS.slice();
+    // Staff see current + next only; managers/owners load only the active tab
+    const weeksToLoad = isLoggedIn() ? [state.tab] : ['current', 'next'];
     const empty = {};
     WEEK_KEYS.forEach(k => { empty[k] = {}; });
     state.weekData = empty;
@@ -607,8 +608,9 @@
         const firstData = (state.weekData['current'] || {})[selectedClub.id];
         body.appendChild(renderStaffHeader(selectedClub, firstData));
 
-        // Then just the schedule grids for each week (no repeated headers)
-        WEEK_KEYS.forEach(weekKey => {
+        // Staff only see current + next week (not week after next)
+        const STAFF_WEEKS = ['current', 'next'];
+        STAFF_WEEKS.forEach(weekKey => {
           const data = (state.weekData[weekKey] || {})[selectedClub.id];
           if (!data) return;
           const section = el('div', { class: 'staff-week-section' });
@@ -683,53 +685,7 @@
       return wrap;
     }
 
-    // Recent changes panel — visible to everyone including anonymous staff.
-    // Shows the single most recent change inline, with a View more button
-    // that expands to reveal the rest on click.
-    const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
-    if (updates.length) {
-      const panel = el('div', { class: 'recent-updates' });
-      panel.appendChild(el('div', { class: 'recent-updates-title muted' },
-        `Recent changes (${updates.length})`));
 
-      const listEl = el('div', { class: 'recent-updates-list' });
-      const renderRow = (u) => {
-        const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' || u.action === 'schedule_submitted' ? ' recent-publish' : '') });
-        row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
-        row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
-        row.appendChild(el('span', {}, describeAuditEntry({
-          action: u.action,
-          details: u.details || {},
-          club_name: club.name,
-          team: (u.details || {}).team || null,
-        })));
-        return row;
-      };
-
-      listEl.appendChild(renderRow(updates[0]));
-      panel.appendChild(listEl);
-
-      if (updates.length > 1) {
-        const toggle = el('button', {
-          class: 'ghost recent-updates-toggle',
-        });
-        let expanded = false;
-        toggle.textContent = `View more (${updates.length - 1})`;
-        toggle.addEventListener('click', () => {
-          expanded = !expanded;
-          if (expanded) {
-            updates.slice(1).forEach(u => listEl.appendChild(renderRow(u)));
-            toggle.textContent = 'Hide';
-          } else {
-            while (listEl.children.length > 1) listEl.removeChild(listEl.lastChild);
-            toggle.textContent = `View more (${updates.length - 1})`;
-          }
-        });
-        panel.appendChild(toggle);
-      }
-
-      wrap.appendChild(panel);
-    }
 
     // Draft toolbar (Undo / Redo / Save Draft) — shown under every club
     // so the user doesn't have to scroll back up to save.
@@ -816,6 +772,14 @@
           onclick: () => switchTab(key),
         }, WEEK_LABELS[key]));
       });
+      // Recent activity button — shows activity for this specific week
+      if (data && data.recent_updates && data.recent_updates.length) {
+        weekHeading.appendChild(el('button', {
+          class: 'ghost',
+          style: 'font-size:12px;',
+          onclick: () => openWeekActivityModal(club, data),
+        }, `Activity (${data.recent_updates.length})`));
+      }
     }
     wrap.appendChild(weekHeading);
 
@@ -1563,6 +1527,37 @@
     }
 
     return wrap;
+  }
+
+  // -------- week activity modal --------
+  function openWeekActivityModal(club, data) {
+    const updates = data.recent_updates || [];
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Activity — ${club.name} — week of ${data.schedule.week_start}`));
+
+    if (!updates.length) {
+      content.appendChild(el('div', { class: 'muted' }, 'No activity for this week.'));
+    } else {
+      const list = el('div', { class: 'activity-list' });
+      updates.forEach(u => {
+        const row = el('div', { class: 'activity-row' + (u.action === 'schedule_published' || u.action === 'schedule_submitted' ? ' activity-publish' : '') });
+        row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(u.created_at)));
+        row.appendChild(el('div', { class: 'activity-who muted' }, u.user_label || 'unknown'));
+        row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry({
+          action: u.action,
+          details: u.details || {},
+          club_name: club.name,
+          team: (u.details || {}).team || null,
+        })));
+        list.appendChild(row);
+      });
+      content.appendChild(list);
+    }
+
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Close'),
+    ]));
+    openModal(content, { wide: true });
   }
 
   // -------- publish modal --------
