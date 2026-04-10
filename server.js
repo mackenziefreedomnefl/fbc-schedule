@@ -876,50 +876,117 @@ app.get('/api/export/backup', ah(async (req, res) => {
   res.json({ exported_at: new Date().toISOString(), clubs, employees, schedules, shifts, totals, users });
 }));
 
-// CSV export of a specific week's schedule
-app.get('/api/export/csv', ah(async (req, res) => {
+// PDF export of both clubs' schedules for a given week
+const PDFDocument = require('pdfkit');
+app.get('/api/export/pdf', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
-  const clubId = Number(req.query.club_id);
   const weekStart = req.query.week;
-  if (!clubId || !weekStart) return res.status(400).json({ error: 'club_id and week required' });
-  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
-  const clubName = clubRows[0] ? clubRows[0].name : 'Club';
-  const { rows: emps } = await pool.query(
-    'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [clubId]);
-  const { rows: schedRows } = await pool.query(
-    'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [clubId, weekStart]);
-  const scheduleId = schedRows[0] ? schedRows[0].id : null;
-  let shiftMap = {};
-  if (scheduleId) {
-    const { rows: shifts } = await pool.query(
-      'SELECT employee_id, day_index, shift_text FROM shifts WHERE schedule_id = $1', [scheduleId]);
-    for (const s of shifts) {
-      shiftMap[s.employee_id] = shiftMap[s.employee_id] || {};
-      shiftMap[s.employee_id][s.day_index] = s.shift_text;
-    }
-  }
+  if (!weekStart) return res.status(400).json({ error: 'week required' });
+
+  const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
   const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const header = ['Employee','Team',...days.map((d, i) => {
+  const dayHeaders = days.map((d, i) => {
     const dt = new Date(weekStart + 'T00:00:00'); dt.setDate(dt.getDate() + i);
     return `${d} ${dt.getMonth()+1}/${dt.getDate()}`;
-  })];
-  const rows = [header.join(',')];
-  for (const emp of emps) {
-    const cells = [
-      `"${(emp.name || '').replace(/"/g, '""')}"`,
-      `"${(emp.team || '').replace(/"/g, '""')}"`,
-    ];
-    for (let d = 0; d < 7; d++) {
-      const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
-      cells.push(`"${val.replace(/"/g, '""')}"`);
+  });
+
+  const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 30 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="FBC-Schedule-${weekStart}.pdf"`);
+  doc.pipe(res);
+
+  for (let ci = 0; ci < clubs.length; ci++) {
+    const club = clubs[ci];
+    if (ci > 0) doc.addPage();
+
+    const { rows: emps } = await pool.query(
+      'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [club.id]);
+    const { rows: schedRows } = await pool.query(
+      'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [club.id, weekStart]);
+    const scheduleId = schedRows[0] ? schedRows[0].id : null;
+    let shiftMap = {};
+    if (scheduleId) {
+      const { rows: shifts } = await pool.query(
+        'SELECT employee_id, day_index, shift_text FROM shifts WHERE schedule_id = $1', [scheduleId]);
+      for (const s of shifts) {
+        shiftMap[s.employee_id] = shiftMap[s.employee_id] || {};
+        shiftMap[s.employee_id][s.day_index] = s.shift_text;
+      }
     }
-    rows.push(cells.join(','));
+
+    // Title
+    doc.fontSize(16).font('Helvetica-Bold').text(club.name, { align: 'center' });
+    doc.fontSize(10).font('Helvetica').text(`Week of ${weekStart}`, { align: 'center' });
+    doc.moveDown(0.5);
+
+    // Table dimensions
+    const startX = 30;
+    const nameColW = 130;
+    const dayColW = Math.floor((doc.page.width - 60 - nameColW) / 7);
+    let y = doc.y;
+
+    // Header row
+    doc.fontSize(7).font('Helvetica-Bold');
+    doc.rect(startX, y, nameColW, 18).fill('#e8f0fe').stroke('#c4d0e0');
+    doc.fillColor('#1a2233').text('Employee', startX + 4, y + 5, { width: nameColW - 8 });
+    for (let d = 0; d < 7; d++) {
+      const x = startX + nameColW + d * dayColW;
+      doc.rect(x, y, dayColW, 18).fill('#e8f0fe').stroke('#c4d0e0');
+      doc.fillColor('#1a2233').text(dayHeaders[d], x + 2, y + 5, { width: dayColW - 4, align: 'center' });
+    }
+    y += 18;
+
+    // Group by team
+    const groups = new Map();
+    for (const e of emps) {
+      const key = e.team || '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    const order = ['Julington Creek', 'Jacksonville Beach'];
+    const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+      const ai = order.indexOf(a); const bi = order.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+
+    for (const teamName of sortedKeys) {
+      // Team divider
+      if (sortedKeys.length > 1 && teamName) {
+        if (y > doc.page.height - 50) { doc.addPage(); y = 30; }
+        doc.rect(startX, y, nameColW + dayColW * 7, 14).fill('#f0f4fa').stroke('#c4d0e0');
+        doc.fontSize(7).font('Helvetica-Bold').fillColor('#5a6a80');
+        doc.text(teamName.toUpperCase(), startX + 4, y + 3);
+        y += 14;
+      }
+
+      for (const emp of groups.get(teamName)) {
+        if (y > doc.page.height - 40) { doc.addPage(); y = 30; }
+        const rowH = 16;
+        // Name cell
+        doc.rect(startX, y, nameColW, rowH).stroke('#c4d0e0');
+        doc.fontSize(7).font('Helvetica').fillColor('#1a2233');
+        doc.text(emp.name, startX + 4, y + 4, { width: nameColW - 8 });
+        // Day cells
+        for (let d = 0; d < 7; d++) {
+          const x = startX + nameColW + d * dayColW;
+          doc.rect(x, y, dayColW, rowH).stroke('#c4d0e0');
+          const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
+          if (val) {
+            // Color code
+            const lower = val.toLowerCase();
+            if (lower.includes('req off')) doc.fillColor('#e5484d');
+            else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#2563eb');
+            else doc.fillColor('#1a2233');
+            doc.fontSize(6).text(val, x + 2, y + 4, { width: dayColW - 4, align: 'center' });
+          }
+        }
+        y += rowH;
+      }
+    }
   }
-  const csv = rows.join('\n');
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="${clubName}-${weekStart}.csv"`);
-  res.send(csv);
+
+  doc.end();
 }));
 
 app.get('/api/health', ah(async (req, res) => {
