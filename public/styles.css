@@ -74,7 +74,17 @@ label input, label select, label textarea { margin-top: 4px; }
 .tabs { display: flex; gap: 6px; margin-left: 16px; }
 .tabs button { background: transparent; border-color: transparent; color: var(--muted); }
 .tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
-.user-chip { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+/* Topbar controls */
+.topbar-btn { font-size: 12px; padding: 5px 10px; }
+.topbar-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.topbar-filter { width: 160px; font-size: 13px; }
+.topbar-label { white-space: nowrap; }
+
+.user-chip { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 
