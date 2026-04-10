@@ -927,22 +927,30 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       }
     }
 
-    // Club name bar — dark navy background
+    // Club name bar — solid black background
     if (y > doc.page.height - 60) { doc.addPage(); y = 20; }
-    doc.rect(startX, y, tableW, 16).fill('#0a1628');
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#ffffff')
-      .text(club.name, startX + 6, y + 3, { width: tableW - 12 });
-    y += 16;
+    doc.rect(startX, y, tableW, 18).fill('#000000');
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff')
+      .text(club.name.toUpperCase(), startX + 6, y + 4, { width: tableW - 12 });
+    y += 18;
 
-    // Column headers — medium blue
-    const headerH = 15;
-    doc.rect(startX, y, nameColW, headerH).fill('#1e40af').stroke('#16327a');
-    doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#ffffff')
+    // Column headers — dark blue, larger text
+    const headerH = 16;
+    doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
+    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
       .text('EMPLOYEE', startX + 4, y + 4, { width: nameColW - 8 });
     for (let d = 0; d < 7; d++) {
       const x = startX + nameColW + d * dayColW;
-      doc.rect(x, y, dayColW, headerH).fill('#1e40af').stroke('#16327a');
-      doc.fillColor('#ffffff').text(dayHeaders[d], x + 2, y + 4, { width: dayColW - 4, align: 'center' });
+      doc.rect(x, y, dayColW, headerH).fill('#1a3a6e');
+      doc.fillColor('#ffffff').fontSize(7).text(dayHeaders[d], x + 2, y + 4, { width: dayColW - 4, align: 'center' });
+    }
+    // Grid lines on header
+    doc.lineWidth(0.75).strokeColor('#333333');
+    doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
+    doc.moveTo(startX, y).lineTo(startX, y + headerH).stroke();
+    doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + headerH).stroke();
+    for (let d = 1; d <= 7; d++) {
+      doc.moveTo(startX + nameColW + d * dayColW, y).lineTo(startX + nameColW + d * dayColW, y + headerH).stroke();
     }
     y += headerH;
 
@@ -978,8 +986,9 @@ app.get('/api/export/pdf', ah(async (req, res) => {
         // Fill entire row background first
         doc.rect(startX, y, tableW, rowH).fill(rowBg);
 
-        // Name cell text
-        doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#0a1628')
+        // Name cell — darker background to stand out
+        doc.rect(startX, y, nameColW, rowH).fill(rowIdx % 2 === 0 ? '#dce4f0' : '#c8d4e6');
+        doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000')
           .text(emp.name, startX + 4, y + 3, { width: nameColW - 8 });
 
         // Day cells text
@@ -988,15 +997,15 @@ app.get('/api/export/pdf', ah(async (req, res) => {
           const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
           if (val) {
             const lower = val.toLowerCase();
-            if (lower.includes('req off')) doc.fillColor('#cc2222');
-            else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#1e40af');
-            else doc.fillColor('#0a1628');
-            doc.fontSize(6).font('Helvetica').text(val, x + 2, y + 3, { width: dayColW - 4, align: 'center' });
+            if (lower.includes('req off')) doc.fillColor('#aa0000');
+            else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#0033aa');
+            else doc.fillColor('#000000');
+            doc.fontSize(6.5).font('Helvetica-Bold').text(val, x + 2, y + 3, { width: dayColW - 4, align: 'center' });
           }
         }
 
-        // Draw grid lines ON TOP of the fill so they're always visible
-        doc.lineWidth(0.5).strokeColor('#8899aa');
+        // Draw grid lines ON TOP — thick dark lines
+        doc.lineWidth(0.75).strokeColor('#333333');
         // Horizontal line at bottom of row
         doc.moveTo(startX, y + rowH).lineTo(startX + tableW, y + rowH).stroke();
         // Vertical lines for each column
