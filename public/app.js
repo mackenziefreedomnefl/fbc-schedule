@@ -832,14 +832,9 @@
     };
 
     const thead = el('thead');
-    thead.appendChild(buildHeaderRow('Employee'));
-    table.appendChild(thead);
-
     const tbody = el('tbody');
     const groups = new Map();
     for (const e of data.employees) {
-      // Use the literal team value (including null/empty) so single-group
-      // clubs collapse into one unnamed bucket.
       const key = e.team || '';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
@@ -850,22 +845,26 @@
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-    // Only draw team divider rows when there is more than one group.
     const showDividers = sortedKeys.length > 1;
 
+    // First team's divider goes in thead ABOVE the date row
+    if (showDividers && sortedKeys[0]) {
+      const divider = el('tr', { class: 'team-divider' });
+      divider.appendChild(el('th', { colspan: 8 }, sortedKeys[0]));
+      thead.appendChild(divider);
+    }
+    thead.appendChild(buildHeaderRow('Employee'));
+    table.appendChild(thead);
+
     sortedKeys.forEach((teamName, idx) => {
-      if (showDividers && teamName) {
+      // Second+ teams get a divider + repeated date header in tbody
+      if (showDividers && teamName && idx > 0) {
         const divider = el('tr', { class: 'team-divider' });
         divider.appendChild(el('td', { colspan: 8 }, teamName));
         tbody.appendChild(divider);
-        // Between team groups, repeat the date header row so the columns
-        // stay labeled when a team (e.g. Jacksonville Beach) starts partway
-        // down the table
-        if (idx > 0) {
-          const repeatHeader = buildHeaderRow('');
-          repeatHeader.classList.add('repeat-header');
-          tbody.appendChild(repeatHeader);
-        }
+        const repeatHeader = buildHeaderRow('');
+        repeatHeader.classList.add('repeat-header');
+        tbody.appendChild(repeatHeader);
       }
 
       for (const emp of groups.get(teamName)) {
