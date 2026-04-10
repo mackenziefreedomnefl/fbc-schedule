@@ -115,7 +115,8 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   top: 56px;
   z-index: 9;
 }
-.draft-count { font-size: 13px; margin-right: auto; }
+.draft-count { font-size: 13px; }
+.draft-toolbar .spacer { flex: 1; }
 .draft-toolbar button { font-size: 13px; }
 .btn-review-ready, .btn-approve-ready {
   background: var(--ok) !important;
