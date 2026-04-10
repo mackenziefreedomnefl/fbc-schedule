@@ -771,12 +771,19 @@
       }, 'Add/Remove Staff'));
 
       // Publish (owner) / Send for Review (manager)
-      // Disabled/faded while unsaved changes exist. Turns green when ready.
-      const readyToSend = !clubCount && (rs === 'draft' || rs === 'changes_pending');
+      // Green = first time sending. Orange = resend (changes after previous send).
+      // Disabled/faded while unsaved changes exist.
+      const firstSend = !clubCount && rs === 'draft';
+      const resend = !clubCount && rs === 'changes_pending';
       const alreadySent = !clubCount && (rs === 'submitted' || rs === 'approved');
+      let btnClass = 'primary';
+      if (firstSend) btnClass = 'btn-review-ready';        // green
+      else if (resend) btnClass = 'btn-review-resend';      // orange
       if (isOwner()) {
+        let ownerClass = 'primary';
+        if (firstSend || resend) ownerClass = 'btn-approve-ready';
         draftBar.appendChild(el('button', {
-          class: readyToSend ? 'btn-approve-ready' : 'primary',
+          class: ownerClass,
           disabled: clubCount > 0,
           onclick: async () => {
             try {
@@ -791,11 +798,14 @@
           },
         }, 'Publish'));
       } else {
+        let label = 'Send for Review';
+        if (resend) label = 'Resend for Review';
+        if (alreadySent) label = 'Sent for Review ✓';
         draftBar.appendChild(el('button', {
-          class: readyToSend ? 'btn-review-ready' : 'primary',
+          class: btnClass,
           disabled: clubCount > 0,
           onclick: () => openPublishModal(club, data),
-        }, alreadySent ? 'Sent for Review ✓' : 'Send for Review'));
+        }, label));
       }
 
       wrap.appendChild(draftBar);
