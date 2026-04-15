@@ -156,6 +156,26 @@
     return [];
   }
 
+  // Map shift text keywords to totals location names.
+  // Used for auto-counting staffing totals from shift entries.
+  const SHIFT_TO_LOCATION = {
+    'beach':    'Jacksonville Beach',
+    'east':     'Creek East',
+    'west':     'Creek West',
+    'camachee': 'Camachee Cove',
+    'shipyard': 'Shipyard',
+  };
+
+  function locationFromShiftText(text) {
+    if (!text) return null;
+    const lower = text.toLowerCase();
+    if (lower.includes('req off')) return null;
+    for (const [keyword, loc] of Object.entries(SHIFT_TO_LOCATION)) {
+      if (lower.includes(keyword)) return loc;
+    }
+    return null;
+  }
+
   // Cell text coloring rules: managers type keywords and the text re-colors
   // to give a quick visual read of the grid.
   function cellColorFor(text) {
@@ -1046,83 +1066,77 @@
     const picker = el('div', { class: 'shift-picker' });
     const options = shiftOptionsForClub(clubName);
 
-    // Location buttons
+    const done = (val) => { applyValue(val); picker.remove(); input.focus(); };
+
+    // Full-shift location buttons
+    picker.appendChild(el('div', { class: 'shift-pick-label' }, 'Full shift'));
+    const fullRow = el('div', { class: 'shift-pick-row' });
     options.forEach(opt => {
-      picker.appendChild(el('button', {
+      fullRow.appendChild(el('button', {
         class: 'shift-pick-btn',
+        onclick: (e) => { e.stopPropagation(); done(opt); },
+      }, opt));
+    });
+    picker.appendChild(fullRow);
+
+    // Partial shift — pick location then type time
+    picker.appendChild(el('div', { class: 'shift-pick-label' }, 'Partial shift'));
+    const partialRow = el('div', { class: 'shift-pick-row' });
+    options.forEach(opt => {
+      partialRow.appendChild(el('button', {
+        class: 'shift-pick-btn shift-pick-partial',
         onclick: (e) => {
           e.stopPropagation();
-          applyValue(opt);
-          picker.remove();
-          input.focus();
+          partialRow.style.display = 'none';
+          timeWrap.style.display = 'flex';
+          timeLoc.textContent = opt;
+          timeWrap.dataset.loc = opt;
+          timeInput.focus();
         },
       }, opt));
     });
+    picker.appendChild(partialRow);
 
-    // Req Off
-    picker.appendChild(el('button', {
-      class: 'shift-pick-btn shift-pick-reqoff',
-      onclick: (e) => {
-        e.stopPropagation();
-        applyValue('Req Off');
-        picker.remove();
-        input.focus();
-      },
-    }, 'Req Off'));
-
-    // Other — expand a text input for custom entry
-    const otherBtn = el('button', {
-      class: 'shift-pick-btn shift-pick-other',
-      onclick: (e) => {
-        e.stopPropagation();
-        otherBtn.style.display = 'none';
-        otherWrap.style.display = 'flex';
-        otherInput.focus();
-      },
-    }, 'Other');
-    picker.appendChild(otherBtn);
-
-    const otherWrap = el('div', { class: 'shift-pick-other-wrap', style: 'display:none;' });
-    const otherInput = el('input', {
+    const timeWrap = el('div', { class: 'shift-pick-other-wrap', style: 'display:none;' });
+    const timeLoc = el('span', { class: 'shift-pick-loc-tag' });
+    const timeInput = el('input', {
       type: 'text',
       class: 'shift-pick-other-input',
-      placeholder: 'e.g. 12 - Close East',
+      placeholder: 'e.g. 12 - Close, Open - 4',
     });
-    otherInput.addEventListener('keydown', (e) => {
+    timeInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (otherInput.value.trim()) {
-          applyValue(otherInput.value.trim());
-        }
-        picker.remove();
-        input.focus();
+        const loc = timeWrap.dataset.loc || '';
+        const time = timeInput.value.trim();
+        done(time ? `${time} ${loc}` : loc);
       }
     });
-    const otherOk = el('button', {
+    const timeOk = el('button', {
       class: 'shift-pick-btn',
       onclick: (e) => {
         e.stopPropagation();
-        if (otherInput.value.trim()) {
-          applyValue(otherInput.value.trim());
-        }
-        picker.remove();
-        input.focus();
+        const loc = timeWrap.dataset.loc || '';
+        const time = timeInput.value.trim();
+        done(time ? `${time} ${loc}` : loc);
       },
     }, 'OK');
-    otherWrap.appendChild(otherInput);
-    otherWrap.appendChild(otherOk);
-    picker.appendChild(otherWrap);
+    timeWrap.appendChild(timeLoc);
+    timeWrap.appendChild(timeInput);
+    timeWrap.appendChild(timeOk);
+    picker.appendChild(timeWrap);
 
-    // Clear button
-    picker.appendChild(el('button', {
+    // Req Off + Clear
+    const bottomRow = el('div', { class: 'shift-pick-row' });
+    bottomRow.appendChild(el('button', {
+      class: 'shift-pick-btn shift-pick-reqoff',
+      onclick: (e) => { e.stopPropagation(); done('Req Off'); },
+    }, 'Req Off'));
+    bottomRow.appendChild(el('button', {
       class: 'shift-pick-btn shift-pick-clear',
-      onclick: (e) => {
-        e.stopPropagation();
-        applyValue('');
-        picker.remove();
-        input.focus();
-      },
+      onclick: (e) => { e.stopPropagation(); done(''); },
     }, 'Clear'));
+    picker.appendChild(bottomRow);
 
     anchorTd.appendChild(picker);
 
@@ -1260,6 +1274,8 @@
                 prevVal, val, serverVal);
               input.classList.toggle('cell-dirty',
                 val !== serverVal || isPendingReview);
+              // Refresh auto-calculated totals
+              refreshTotals(club, data);
             };
 
             input.addEventListener('input', () => applyValue(input.value));
@@ -1324,19 +1340,45 @@
     return wrap;
   }
 
+  // Refresh totals display in place after a cell edit
+  function refreshTotals(club, data) {
+    const existing = document.querySelector(`.totals-wrap[data-club-id="${club.id}"]`);
+    if (!existing) return;
+    const newTotals = buildTotalsGrid(club, data);
+    existing.replaceWith(newTotals);
+  }
+
+  // Count staffing per location per day from shift data + pending changes
+  function computeTotals(data) {
+    const counts = {}; // { locationName: [day0, day1, ... day6] }
+    const locations = data.locations || [];
+    locations.forEach(loc => { counts[loc] = [0,0,0,0,0,0,0]; });
+
+    for (const emp of data.employees) {
+      for (let d = 0; d < 7; d++) {
+        // Check pending changes first, fall back to server value
+        const key = cellKey(data.schedule.id, emp.id, d);
+        const pending = state.pendingChanges.get(key);
+        const text = pending ? pending.shift_text
+          : (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+        const loc = locationFromShiftText(text);
+        if (loc && counts[loc] !== undefined) {
+          counts[loc][d]++;
+        }
+      }
+    }
+    return counts;
+  }
+
   function buildTotalsGrid(club, data) {
     const locations = data.locations || [];
     if (!locations.length) return el('div');
 
-    const editable = canEditClub(club.id);
     const weekStart = data.schedule.week_start;
-    const wrap = el('div', { class: 'totals-wrap' });
+    const wrap = el('div', { class: 'totals-wrap', 'data-club-id': club.id });
     wrap.appendChild(el('div', { class: 'totals-label' }, 'Staffing by location'));
 
-    const pendingReviewTotals = new Set();
-    if (data.pending_totals) {
-      data.pending_totals.forEach(t => pendingReviewTotals.add(`${t.location}:${t.day_index}`));
-    }
+    const counts = computeTotals(data);
 
     const table = el('table', { class: 'totals-table' });
     const thead = el('thead');
@@ -1355,28 +1397,8 @@
       tr.appendChild(el('td', { class: 'totals-loc' }, loc));
       for (let d = 0; d < 7; d++) {
         const td = el('td', { class: 'totals-cell' });
-        const tKey = totalKey(data.schedule.id, loc, d);
-        const serverVal = (data.totals && data.totals[loc] && data.totals[loc][d]) || '';
-        const pending = state.pendingChanges.get(tKey);
-        const val = pending ? pending.shift_text : serverVal;
-        if (editable) {
-          const input = el('input', { type: 'text', inputmode: 'numeric', 'data-cell-key': tKey });
-          input.value = val;
-          const isTotalPending = pendingReviewTotals.has(`${loc}:${d}`);
-          if (pending || isTotalPending) input.classList.add('cell-dirty');
-          input.addEventListener('input', () => {
-            const prevVal = state.pendingChanges.has(tKey)
-              ? state.pendingChanges.get(tKey).shift_text : serverVal;
-            recordEdit(tKey,
-              { schedule_id: data.schedule.id, location: loc, day_index: d, club_id: club.id },
-              prevVal, input.value, serverVal);
-            input.classList.toggle('cell-dirty',
-              input.value !== serverVal || isTotalPending);
-          });
-          td.appendChild(input);
-        } else {
-          td.appendChild(el('div', { class: 'day-readonly' }, val || '—'));
-        }
+        const count = counts[loc] ? counts[loc][d] : 0;
+        td.appendChild(el('div', { class: 'totals-count' }, count ? String(count) : '—'));
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
