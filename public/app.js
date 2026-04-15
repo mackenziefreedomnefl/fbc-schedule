@@ -596,16 +596,14 @@
       return;
     }
 
-    // Static notice — only for anonymous staff and owners (managers skip it)
-    if (!isLoggedIn() || isOwner()) {
+    // Static notice — owners only (with edit button)
+    if (isOwner()) {
       const notice = el('div', { class: 'shift-notice' });
       notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
-      if (isOwner()) {
-        notice.appendChild(el('button', {
-          class: 'ghost shift-notice-edit',
-          onclick: openNoticeModal,
-        }, 'Edit'));
-      }
+      notice.appendChild(el('button', {
+        class: 'ghost shift-notice-edit',
+        onclick: openNoticeModal,
+      }, 'Edit'));
       body.appendChild(notice);
     }
 
