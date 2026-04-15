@@ -104,6 +104,19 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
 
+-- Schedule images: uploaded schedule images (one per week) that replace
+-- the editable grid view. Stored as bytea so they persist across deploys.
+CREATE TABLE IF NOT EXISTS schedule_images (
+  id SERIAL PRIMARY KEY,
+  week_start DATE NOT NULL,
+  original_name TEXT NOT NULL DEFAULT '',
+  mime_type TEXT NOT NULL DEFAULT 'image/jpeg',
+  image_data BYTEA NOT NULL,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (week_start)
+);
+
 -- Key/value flags for one-shot migration logic (e.g. example data seeding)
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,

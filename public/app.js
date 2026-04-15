@@ -46,6 +46,7 @@
     pendingChanges: new Map(),
     undoStack: [],   // [ { key, old_value, new_value, server_value, ...ids } ]
     redoStack: [],
+    scheduleImages: {},  // { 'YYYY-MM-DD': { week_start, original_name, created_at } }
   };
 
   // -------- dom helpers --------
@@ -543,6 +544,23 @@
     }
   }
 
+  async function loadScheduleImages() {
+    try {
+      const list = await api('/api/schedule-images');
+      state.scheduleImages = {};
+      for (const img of list) {
+        state.scheduleImages[img.week_start] = img;
+      }
+    } catch (e) {
+      console.warn('Failed to load schedule images', e);
+    }
+  }
+
+  function hasScheduleImage(weekKey) {
+    const ws = weekForTab(weekKey);
+    return !!state.scheduleImages[ws];
+  }
+
   async function loadAllSchedules() {
     // Anonymous staff see every configured week stacked, so we fetch all of
     // them. Signed-in managers/owners use tabs so we only fetch the active
@@ -552,6 +570,10 @@
     const empty = {};
     WEEK_KEYS.forEach(k => { empty[k] = {}; });
     state.weekData = empty;
+
+    // Load schedule images list in parallel with schedule data
+    const imgPromise = loadScheduleImages();
+
     for (const weekKey of weeksToLoad) {
       const weekStart = weekForTab(weekKey);
       const results = await Promise.all(state.clubs.map(c =>
@@ -561,6 +583,8 @@
         state.weekData[weekKey][clubId] = data;
       }
     }
+
+    await imgPromise;
   }
 
   function renderBody() {
@@ -595,6 +619,13 @@
         visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.adminClubId));
       } else {
         visibleClubs = state.clubs;
+      }
+
+      // Schedule image upload/display — one image covers all clubs for the week
+      const ws = weekForTab(state.tab);
+      body.appendChild(buildScheduleImageUpload(ws, state.tab));
+      if (state.scheduleImages[ws]) {
+        body.appendChild(buildScheduleImageView(ws, state.tab));
       }
 
       visibleClubs.forEach((club, idx) => {
@@ -652,7 +683,14 @@
             }, 'View Recent Changes'));
           }
           section.appendChild(heading);
-          section.appendChild(buildScheduleGrid(selectedClub, data));
+
+          // Show schedule image if one is uploaded for this week
+          const ws = weekForTab(weekKey);
+          if (state.scheduleImages[ws]) {
+            section.appendChild(buildScheduleImageView(ws, weekKey));
+          } else {
+            section.appendChild(buildScheduleGrid(selectedClub, data));
+          }
           body.appendChild(section);
         });
       }
@@ -845,6 +883,110 @@
     // account just see the schedule and the notes; hide the totals table.
     if (isLoggedIn()) {
       wrap.appendChild(buildTotalsGrid(club, data));
+    }
+
+    return wrap;
+  }
+
+  // Build a view-only display of an uploaded schedule image
+  function buildScheduleImageView(weekStart, weekKey) {
+    const imgInfo = state.scheduleImages[weekStart];
+    if (!imgInfo) return el('div');
+
+    const wrap = el('div', { class: 'schedule-image-view' });
+    const isPdf = imgInfo.mime_type === 'application/pdf' ||
+      (imgInfo.original_name && imgInfo.original_name.toLowerCase().endsWith('.pdf'));
+    const src = `/api/schedule-images/${weekStart}`;
+
+    if (isPdf) {
+      const obj = el('object', {
+        type: 'application/pdf',
+        data: src,
+        class: 'schedule-image-pdf',
+      });
+      obj.innerHTML = '<p>Unable to display PDF. <a href="' + src + '" target="_blank">Download instead</a>.</p>';
+      wrap.appendChild(obj);
+    } else {
+      const img = el('img', {
+        src: src,
+        alt: 'Schedule for ' + (WEEK_HEADINGS[weekKey] || weekKey),
+        class: 'schedule-image-img',
+      });
+      wrap.appendChild(img);
+    }
+
+    return wrap;
+  }
+
+  // Build upload/replace/delete controls for schedule images (logged-in only)
+  function buildScheduleImageUpload(weekStart, weekKey) {
+    const wrap = el('div', { class: 'schedule-image-controls' });
+    const imgInfo = state.scheduleImages[weekStart];
+
+    if (imgInfo) {
+      wrap.appendChild(el('span', { class: 'muted', style: 'font-size:12px;' },
+        'Schedule image uploaded: ' + imgInfo.original_name));
+    }
+
+    // Upload / Replace button
+    const fileInput = el('input', {
+      type: 'file',
+      accept: 'image/*,application/pdf',
+      style: 'display:none;',
+    });
+    const label = imgInfo ? 'Replace Image' : 'Upload Schedule Image';
+    const uploadBtn = el('button', {
+      class: 'ghost',
+      style: 'font-size:12px;',
+      onclick: () => fileInput.click(),
+    }, label);
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('week_start', weekStart);
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+      try {
+        const res = await fetch('/api/schedule-images', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Upload failed');
+        }
+        toast('Schedule image uploaded');
+        await loadScheduleImages();
+        renderBody();
+      } catch (e) {
+        toast(e.message, 'err');
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = label;
+      }
+    });
+
+    wrap.appendChild(fileInput);
+    wrap.appendChild(uploadBtn);
+
+    // Delete button (owner only)
+    if (imgInfo && isOwner()) {
+      wrap.appendChild(el('button', {
+        class: 'ghost danger',
+        style: 'font-size:12px;',
+        onclick: async () => {
+          if (!confirm('Remove the schedule image for this week?')) return;
+          try {
+            await api(`/api/schedule-images/${weekStart}`, { method: 'DELETE' });
+            toast('Image removed');
+            await loadScheduleImages();
+            renderBody();
+          } catch (e) { toast(e.message, 'err'); }
+        },
+      }, 'Remove Image'));
     }
 
     return wrap;
