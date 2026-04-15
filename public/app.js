@@ -174,9 +174,9 @@
   }
   // Any signed-in user (owner or manager) can edit every club and every
   // team. Per-location restrictions were removed on request.
-  function canEditEmployee(/* employee */) { return isLoggedIn(); }
-  function canEditTeam(/* clubId, team */) { return isLoggedIn(); }
-  function canEditClub(/* clubId */) { return isLoggedIn(); }
+  function canEditEmployee(/* employee */) { return isLoggedIn() && !isPastView(); }
+  function canEditTeam(/* clubId, team */) { return isLoggedIn() && !isPastView(); }
+  function canEditClub(/* clubId */) { return isLoggedIn() && !isPastView(); }
 
   // -------- draft / undo / redo --------
   function cellKey(scheduleId, empId, dayIndex) {
@@ -791,7 +791,8 @@
 
     // Draft toolbar (Undo / Redo / Save Draft) — shown under every club
     // so the user doesn't have to scroll back up to save.
-    if (isLoggedIn()) {
+    // Hidden when viewing past weeks (read-only).
+    if (isLoggedIn() && !isPastView()) {
       const draftBar = el('div', { class: 'draft-toolbar', 'data-club-id': club.id });
       const clubCount = countForClub(club.id);
       const clubUndo = undoCountForClub(club.id);
