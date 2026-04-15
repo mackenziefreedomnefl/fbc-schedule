@@ -646,29 +646,40 @@
             },
           }, c.name));
         });
+        btnWrap.appendChild(el('button', {
+          class: 'location-picker-btn',
+          onclick: async () => {
+            state.staffClubId = 'all';
+            await loadAllSchedules();
+            renderBody();
+          },
+        }, 'View All'));
         picker.appendChild(btnWrap);
         body.appendChild(picker);
         return;
       }
 
-      // Show selected club only, with a switch button
-      const selectedClub = state.clubs.find(c => c.id === state.staffClubId);
-      if (selectedClub) {
-        const switchBar = el('div', { class: 'location-switch' });
-        switchBar.appendChild(el('span', { class: 'muted' }, `Viewing: ${selectedClub.name}`));
-        switchBar.appendChild(el('button', {
-          class: 'ghost',
-          onclick: () => { state.staffClubId = null; renderBody(); },
-        }, 'Switch location'));
-        body.appendChild(switchBar);
+      // Show selected club(s) with a switch button
+      const viewingAll = state.staffClubId === 'all';
+      const visibleClubs = viewingAll
+        ? state.clubs
+        : state.clubs.filter(c => c.id === state.staffClubId);
 
-        // Club header + staff search shown ONCE
-        body.appendChild(renderStaffHeader(selectedClub));
+      const switchBar = el('div', { class: 'location-switch' });
+      switchBar.appendChild(el('span', { class: 'muted' },
+        viewingAll ? 'Viewing: All Locations' : `Viewing: ${visibleClubs[0] ? visibleClubs[0].name : ''}`));
+      switchBar.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => { state.staffClubId = null; renderBody(); },
+      }, 'Switch location'));
+      body.appendChild(switchBar);
 
-        // Staff only see current + next week (not week after next)
+      visibleClubs.forEach(club => {
+        body.appendChild(renderStaffHeader(club));
+
         const STAFF_WEEKS = ['current', 'next'];
         STAFF_WEEKS.forEach(weekKey => {
-          const data = (state.weekData[weekKey] || {})[selectedClub.id];
+          const data = (state.weekData[weekKey] || {})[club.id];
           if (!data) return;
           const section = el('div', { class: 'staff-week-section' });
           const heading = el('div', { class: 'club-week-heading' });
@@ -677,20 +688,19 @@
             heading.appendChild(el('button', {
               class: 'ghost',
               style: 'font-size:12px;',
-              onclick: () => openWeekActivityModal(selectedClub, data),
+              onclick: () => openWeekActivityModal(club, data),
             }, 'View Recent Changes'));
           }
           section.appendChild(heading);
 
-          // Show schedule image above the grid if one is uploaded
           const ws = weekForTab(weekKey);
           if (state.scheduleImages[ws]) {
             section.appendChild(buildScheduleImageView(ws, weekKey));
           }
-          section.appendChild(buildScheduleGrid(selectedClub, data));
+          section.appendChild(buildScheduleGrid(club, data));
           body.appendChild(section);
         });
-      }
+      });
     }
 
     // Apply any existing filter after new rows are rendered
