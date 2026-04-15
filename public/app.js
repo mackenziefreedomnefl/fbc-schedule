@@ -840,6 +840,13 @@
         style: 'font-size:11px;',
         onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
       }, 'PDF'));
+      if (!isPastView()) {
+        header.appendChild(el('button', {
+          class: 'ghost',
+          style: 'font-size:11px;',
+          onclick: () => openImportFromImageModal(club, data),
+        }, 'Import from Image'));
+      }
     }
 
     wrap.appendChild(header);
@@ -1409,6 +1416,159 @@
   }
 
   // -------- login modal --------
+  // -------- Import from Image modal --------
+  function openImportFromImageModal(club, data) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Import schedule — ${club.name}`));
+    content.appendChild(el('p', { class: 'muted' },
+      'Upload a photo or PDF of a schedule. AI will read it and fill in the shifts.'));
+
+    const fileInput = el('input', { type: 'file', accept: 'image/*,application/pdf' });
+    content.appendChild(fileInput);
+
+    const statusDiv = el('div', { class: 'muted', style: 'margin-top:10px;' });
+    content.appendChild(statusDiv);
+
+    const previewDiv = el('div', { style: 'margin-top:12px;' });
+    content.appendChild(previewDiv);
+
+    const parseBtn = el('button', {
+      class: 'primary',
+      style: 'margin-top:10px;',
+      disabled: true,
+      onclick: async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        parseBtn.disabled = true;
+        parseBtn.textContent = 'Reading schedule...';
+        statusDiv.textContent = 'Sending to AI — this may take 10-20 seconds...';
+        previewDiv.innerHTML = '';
+
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('club_id', club.id);
+
+        try {
+          const res = await fetch('/api/parse-schedule', {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: formData,
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error || 'Parse failed');
+
+          statusDiv.textContent = 'Schedule parsed. Review below and click Apply.';
+          showParsePreview(previewDiv, club, data, result.shifts || {});
+        } catch (err) {
+          statusDiv.textContent = '';
+          toast(err.message, 'err');
+          parseBtn.disabled = false;
+          parseBtn.textContent = 'Parse Schedule';
+        }
+      },
+    }, 'Parse Schedule');
+
+    fileInput.addEventListener('change', () => {
+      parseBtn.disabled = !fileInput.files.length;
+    });
+
+    content.appendChild(parseBtn);
+    content.appendChild(el('button', {
+      class: 'ghost',
+      style: 'margin-top:10px; margin-left:8px;',
+      onclick: closeModal,
+    }, 'Cancel'));
+
+    openModal(content, { wide: true });
+  }
+
+  function showParsePreview(container, club, data, parsedShifts) {
+    container.innerHTML = '';
+    const empNames = Object.keys(parsedShifts);
+    if (!empNames.length) {
+      container.appendChild(el('div', { class: 'muted' }, 'No shifts found in the image.'));
+      return;
+    }
+
+    // Build preview table
+    const table = el('table', { class: 'data-table', style: 'font-size:12px;' });
+    const thead = el('thead');
+    const hrow = el('tr');
+    hrow.appendChild(el('th', {}, 'Employee'));
+    DAYS.forEach(d => hrow.appendChild(el('th', {}, d)));
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    empNames.forEach(name => {
+      const shifts = parsedShifts[name] || [];
+      const tr = el('tr');
+      tr.appendChild(el('td', { style: 'font-weight:600;' }, name));
+      for (let d = 0; d < 7; d++) {
+        const val = shifts[d] || '';
+        const td = el('td');
+        td.textContent = val || '—';
+        if (val) td.style.color = cellColorFor(val) || 'inherit';
+        else td.style.color = 'var(--muted)';
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+
+    // Apply button
+    container.appendChild(el('button', {
+      class: 'primary',
+      style: 'margin-top:12px;',
+      onclick: () => {
+        applyParsedShifts(club, data, parsedShifts);
+        closeModal();
+      },
+    }, 'Apply to Schedule'));
+
+    container.appendChild(el('span', { class: 'muted', style: 'margin-left:10px; font-size:12px;' },
+      `${empNames.length} employees parsed`));
+  }
+
+  function applyParsedShifts(club, data, parsedShifts) {
+    // Build a name→employee lookup from the current data
+    const empByName = {};
+    for (const emp of data.employees) {
+      empByName[emp.name.toLowerCase()] = emp;
+    }
+
+    let applied = 0;
+    let skipped = [];
+
+    for (const [name, shifts] of Object.entries(parsedShifts)) {
+      const emp = empByName[name.toLowerCase()];
+      if (!emp) {
+        skipped.push(name);
+        continue;
+      }
+      for (let d = 0; d < 7; d++) {
+        const val = (shifts[d] || '').trim();
+        const key = cellKey(data.schedule.id, emp.id, d);
+        const serverVal = (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+        // Only apply if different from current
+        if (val !== serverVal) {
+          recordEdit(key,
+            { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d, club_id: club.id },
+            serverVal, val, serverVal);
+          applied++;
+        }
+      }
+    }
+
+    renderBody();
+    if (skipped.length) {
+      toast(`Applied ${applied} shifts. Skipped: ${skipped.join(', ')}`, 'warn');
+    } else {
+      toast(`Applied ${applied} shifts from image`);
+    }
+  }
+
   function openLoginModal() {
     const content = el('div');
     content.appendChild(el('h2', {}, 'Sign in'));
