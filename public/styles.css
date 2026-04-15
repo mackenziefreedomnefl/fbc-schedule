@@ -508,9 +508,19 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   position: absolute; top: 100%; left: 0; z-index: 30;
   background: var(--panel); border: 1px solid var(--border);
   border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-  padding: 6px; display: flex; flex-wrap: wrap; gap: 4px;
-  min-width: 200px; max-width: 280px;
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  min-width: 220px; max-width: 300px;
 }
+.shift-pick-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); font-weight: 600; padding: 0 2px;
+}
+.shift-pick-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.shift-pick-loc-tag {
+  background: var(--accent); color: #fff; padding: 3px 8px;
+  border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.shift-pick-partial { border-style: dashed; }
 .shift-pick-btn {
   padding: 5px 10px; font-size: 12px; border-radius: 5px;
   cursor: pointer; border: 1px solid var(--border);
@@ -597,6 +607,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   padding: 8px 10px; border-radius: 0; text-align: center;
 }
 .totals-table td.totals-cell input:focus { background: rgba(76, 139, 245, 0.12); }
+.totals-count { padding: 8px 10px; font-weight: 600; color: var(--text); }
 
 /* Tables (users, roster) */
 .data-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
