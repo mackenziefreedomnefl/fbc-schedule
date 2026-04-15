@@ -4,6 +4,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+const _env = (k) => process.env[k] || '';
 
 // Map of club name -> env var holding that club's password.
 // A password is only ever written to the DB if the column is still null,
@@ -83,7 +84,7 @@ async function main() {
 
     // One-shot: clear all schedule data if requested. Marks seeder flags
     // as done so example data doesn't get re-inserted on this same run.
-    if (String(process.env.CLEAR_ALL_SCHEDULES || '').toLowerCase() === 'true') {
+    if (String(_env('WIPE_SCHEDULES') || '').toLowerCase() === 'true') {
       await pool.query('DELETE FROM shifts');
       await pool.query('DELETE FROM location_totals');
       await pool.query('DELETE FROM schedules');
