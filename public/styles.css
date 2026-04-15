@@ -734,6 +734,52 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   .data-table th, .data-table td { padding: 6px 8px; }
 }
 
+/* Past week navigation */
+.week-nav-btn {
+  font-size: 12px !important;
+  padding: 2px 8px !important;
+  min-width: 28px;
+  border: none !important;
+}
+.week-nav-btn:hover { background: var(--panel-2) !important; }
+
+.past-week-badge {
+  display: inline-block;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-right: 6px;
+}
+
+.club-section.past-view {
+  opacity: 0.85;
+  border-left: 4px solid #f59e0b;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 20px,
+    rgba(245, 158, 11, 0.03) 20px,
+    rgba(245, 158, 11, 0.03) 40px
+  );
+}
+
+.club-section.past-view .club-header h2::after {
+  content: ' (Past)';
+  font-size: 13px;
+  font-weight: 400;
+  color: #f59e0b;
+}
+
+.club-week-heading.past-week {
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
 /* Schedule Images */
 .schedule-image-controls {
   display: flex;

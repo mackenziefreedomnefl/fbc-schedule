@@ -35,6 +35,7 @@
     me: { id: null },
     clubs: [],
     tab: 'current',
+    weekOffset: 0,      // 0 = normal view, -1 = one week back, -2 = two weeks back, etc.
     weekStart: null,
     weekData: { current: {}, next: {}, week3: {} },
     staffClubId: null,  // anonymous staff: which club they selected to view
@@ -370,9 +371,14 @@
   // -------- bootstrap --------
   function weekForTab(tab) {
     const thisWeek = mondayOf(new Date());
-    if (tab === 'week3') return addDays(thisWeek, 14);
-    if (tab === 'next') return addDays(thisWeek, 7);
-    return thisWeek;
+    const offset = (state.weekOffset || 0) * 7;
+    if (tab === 'week3') return addDays(thisWeek, 14 + offset);
+    if (tab === 'next') return addDays(thisWeek, 7 + offset);
+    return addDays(thisWeek, offset);
+  }
+
+  function isPastView() {
+    return (state.weekOffset || 0) < 0;
   }
 
   async function bootstrap() {
@@ -442,6 +448,21 @@
   async function switchTab(tab) {
     state.tab = tab;
     state.weekStart = weekForTab(tab);
+    await loadAllSchedules();
+    renderBody();
+  }
+
+  async function navigateWeek(direction) {
+    state.weekOffset = (state.weekOffset || 0) + direction;
+    state.weekStart = weekForTab(state.tab);
+    await loadAllSchedules();
+    renderBody();
+  }
+
+  async function jumpToCurrentWeek() {
+    state.weekOffset = 0;
+    state.tab = 'current';
+    state.weekStart = weekForTab('current');
     await loadAllSchedules();
     renderBody();
   }
@@ -747,7 +768,7 @@
   function renderClubSection(club, weekKey, showWeekHeading) {
     weekKey = weekKey || 'current';
     const data = (state.weekData[weekKey] || {})[club.id];
-    const wrap = el('section', { class: 'club-section' });
+    const wrap = el('section', { class: 'club-section' + (isPastView() ? ' past-view' : '') });
 
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
@@ -865,15 +886,52 @@
 
     // Week heading with inline tabs (signed-in) or plain label (staff)
     const weekHeading = el('div', { class: 'club-week-heading' });
+
+    // Past-week banner
+    if (isPastView()) {
+      weekHeading.classList.add('past-week');
+      weekHeading.appendChild(el('span', { class: 'past-week-badge' }, 'PAST SCHEDULE'));
+    }
+
+    // Week date range label
+    const ws = weekForTab(weekKey);
     weekHeading.appendChild(el('span', {},
-      WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+      isPastView()
+        ? fmtWeek(ws)
+        : (WEEK_HEADINGS[weekKey] || 'Current Work Week')));
+
     if (isLoggedIn()) {
-      WEEK_KEYS.forEach(key => {
+      // Back / Forward arrows
+      weekHeading.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(-1),
+        title: 'Previous week',
+      }, '\u25C0'));
+      weekHeading.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(1),
+        title: 'Next week',
+      }, '\u25B6'));
+
+      // "Back to current" button when viewing past
+      if (isPastView()) {
         weekHeading.appendChild(el('button', {
-          class: 'week-tab-inline' + (state.tab === key ? ' active' : ''),
-          onclick: () => switchTab(key),
-        }, WEEK_LABELS[key]));
-      });
+          class: 'primary',
+          style: 'font-size:11px; padding:4px 10px;',
+          onclick: () => jumpToCurrentWeek(),
+        }, 'Back to Current Week'));
+      }
+
+      // Week tabs (only shown when not in past view)
+      if (!isPastView()) {
+        WEEK_KEYS.forEach(key => {
+          weekHeading.appendChild(el('button', {
+            class: 'week-tab-inline' + (state.tab === key ? ' active' : ''),
+            onclick: () => switchTab(key),
+          }, WEEK_LABELS[key]));
+        });
+      }
+
       // Recent activity button — shows activity for this specific week
       if (data && data.recent_updates && data.recent_updates.length) {
         weekHeading.appendChild(el('button', {
