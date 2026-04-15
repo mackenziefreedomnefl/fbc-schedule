@@ -642,7 +642,9 @@
 
       // Schedule image upload/display — one image covers all clubs for the week
       const ws = weekForTab(state.tab);
-      body.appendChild(buildScheduleImageUpload(ws, state.tab));
+      if (isOwner()) {
+        body.appendChild(buildScheduleImageUpload(ws, state.tab));
+      }
       if (state.scheduleImages[ws]) {
         body.appendChild(buildScheduleImageView(ws, state.tab));
       }
