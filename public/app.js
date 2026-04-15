@@ -2050,7 +2050,7 @@
                 refresh();
               } catch (err) { toast(err.message, 'err'); }
             },
-          }, e.archived ? 'Unarchive' : 'Archive'));
+          }, e.archived ? 'Restore' : 'Remove'));
         } else {
           actions.appendChild(el('span', { class: 'muted' }, '(not your team)'));
         }
