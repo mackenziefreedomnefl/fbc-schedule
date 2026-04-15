@@ -86,6 +86,26 @@ label input, label select, label textarea { margin-top: 4px; }
 .topbar-filter { width: 160px; font-size: 13px; }
 .topbar-label { white-space: nowrap; }
 
+/* User menu dropdown */
+.topbar-menu-wrap { position: relative; }
+.topbar-menu-btn { white-space: nowrap; }
+.topbar-dropdown {
+  display: none;
+  position: absolute; right: 0; top: 100%; margin-top: 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 180px; z-index: 20;
+  padding: 6px 0;
+}
+.topbar-menu-wrap.open .topbar-dropdown { display: block; }
+.topbar-dropdown button {
+  display: block; width: 100%; text-align: left; border: none; border-radius: 0;
+  padding: 8px 16px; font-size: 13px; background: transparent; cursor: pointer;
+}
+.topbar-dropdown button:hover { background: var(--panel-2); }
+.topbar-dropdown-label {
+  padding: 6px 16px 8px; font-size: 11px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+
 .user-chip { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
