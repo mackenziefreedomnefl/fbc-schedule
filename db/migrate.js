@@ -81,6 +81,16 @@ async function main() {
     console.log('[migrate] applying schema...');
     await pool.query(schemaSql);
 
+    // One-shot: clear all schedule data if requested
+    if (String(process.env.CLEAR_ALL_SCHEDULES || '').toLowerCase() === 'true') {
+      await pool.query('DELETE FROM shifts');
+      await pool.query('DELETE FROM location_totals');
+      await pool.query('DELETE FROM schedules');
+      await pool.query("DELETE FROM audit_log");
+      await pool.query("DELETE FROM app_state WHERE key IN ('example_seeded','import_schedule_v2')");
+      console.log('[migrate] CLEARED all schedule data, totals, and audit log. Remove CLEAR_ALL_SCHEDULES env var now.');
+    }
+
     // Seed clubs/employees if DB empty
     const { rows: clubCountRows } = await pool.query('SELECT COUNT(*)::int AS c FROM clubs');
     if (clubCountRows[0].c === 0) {
