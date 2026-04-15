@@ -5,6 +5,7 @@ const session = require('express-session');
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
 const { Pool } = require('pg');
+const multer = require('multer');
 const PgSession = require('connect-pg-simple')(session);
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
@@ -958,6 +959,80 @@ app.post('/api/clubs/:id/import', ah(async (req, res) => {
     skipped_names: [...new Set(skipped)],
   });
   res.json({ ok: true, imported, skipped: [...new Set(skipped)] });
+}));
+
+// ---------- schedule images ----------
+const scheduleUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
+    cb(null, allowed.includes(file.mimetype));
+  },
+});
+
+// Upload a schedule image for a given week (replaces existing)
+app.post('/api/schedule-images', scheduleUpload.single('image'), ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  if (!req.file) return res.status(400).json({ error: 'image file required (jpg, png, webp, gif, or pdf)' });
+  const { week_start } = req.body;
+  if (!week_start) return res.status(400).json({ error: 'week_start required' });
+  let weekStart;
+  try { weekStart = mondayOf(week_start); }
+  catch (e) { return res.status(400).json({ error: 'bad week_start (YYYY-MM-DD)' }); }
+
+  await pool.query(
+    `INSERT INTO schedule_images (week_start, original_name, mime_type, image_data, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (week_start) DO UPDATE
+     SET original_name = EXCLUDED.original_name, mime_type = EXCLUDED.mime_type,
+         image_data = EXCLUDED.image_data, uploaded_by = EXCLUDED.uploaded_by,
+         created_at = NOW()`,
+    [weekStart, req.file.originalname, req.file.mimetype, req.file.buffer, user.id]
+  );
+  await audit(user, 'schedule_image_upload', null, null, {
+    week_start: weekStart,
+    original_name: req.file.originalname,
+    size: req.file.size,
+  });
+  res.json({ ok: true, week_start: weekStart });
+}));
+
+// List which weeks have schedule images
+app.get('/api/schedule-images', ah(async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT week_start, original_name, mime_type, created_at FROM schedule_images ORDER BY week_start DESC'
+  );
+  res.json(rows.map(r => ({
+    week_start: r.week_start instanceof Date ? r.week_start.toISOString().slice(0, 10) : r.week_start,
+    original_name: r.original_name,
+    mime_type: r.mime_type,
+    created_at: r.created_at,
+  })));
+}));
+
+// Serve a schedule image by week
+app.get('/api/schedule-images/:weekStart', ah(async (req, res) => {
+  const weekStart = req.params.weekStart;
+  const { rows } = await pool.query(
+    'SELECT mime_type, image_data FROM schedule_images WHERE week_start = $1',
+    [weekStart]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'no image for this week' });
+  res.setHeader('Content-Type', rows[0].mime_type);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.send(rows[0].image_data);
+}));
+
+// Delete a schedule image (owner-only)
+app.delete('/api/schedule-images/:weekStart', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const weekStart = req.params.weekStart;
+  await pool.query('DELETE FROM schedule_images WHERE week_start = $1', [weekStart]);
+  await audit(user, 'schedule_image_delete', null, null, { week_start: weekStart });
+  res.json({ ok: true });
 }));
 
 // ---------- health ----------

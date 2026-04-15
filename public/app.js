@@ -46,6 +46,7 @@
     pendingChanges: new Map(),
     undoStack: [],   // [ { key, old_value, new_value, server_value, ...ids } ]
     redoStack: [],
+    scheduleImages: {},  // { 'YYYY-MM-DD': { week_start, original_name, created_at } }
   };
 
   // -------- dom helpers --------
@@ -543,6 +544,23 @@
     }
   }
 
+  async function loadScheduleImages() {
+    try {
+      const list = await api('/api/schedule-images');
+      state.scheduleImages = {};
+      for (const img of list) {
+        state.scheduleImages[img.week_start] = img;
+      }
+    } catch (e) {
+      console.warn('Failed to load schedule images', e);
+    }
+  }
+
+  function hasScheduleImage(weekKey) {
+    const ws = weekForTab(weekKey);
+    return !!state.scheduleImages[ws];
+  }
+
   async function loadAllSchedules() {
     // Anonymous staff see every configured week stacked, so we fetch all of
     // them. Signed-in managers/owners use tabs so we only fetch the active
@@ -552,6 +570,10 @@
     const empty = {};
     WEEK_KEYS.forEach(k => { empty[k] = {}; });
     state.weekData = empty;
+
+    // Load schedule images list in parallel with schedule data
+    const imgPromise = loadScheduleImages();
+
     for (const weekKey of weeksToLoad) {
       const weekStart = weekForTab(weekKey);
       const results = await Promise.all(state.clubs.map(c =>
@@ -561,6 +583,8 @@
         state.weekData[weekKey][clubId] = data;
       }
     }
+
+    await imgPromise;
   }
 
   function renderBody() {
@@ -572,16 +596,14 @@
       return;
     }
 
-    // Static notice — only for anonymous staff and owners (managers skip it)
-    if (!isLoggedIn() || isOwner()) {
+    // Static notice — owners only (with edit button)
+    if (isOwner()) {
       const notice = el('div', { class: 'shift-notice' });
       notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
-      if (isOwner()) {
-        notice.appendChild(el('button', {
-          class: 'ghost shift-notice-edit',
-          onclick: openNoticeModal,
-        }, 'Edit'));
-      }
+      notice.appendChild(el('button', {
+        class: 'ghost shift-notice-edit',
+        onclick: openNoticeModal,
+      }, 'Edit'));
       body.appendChild(notice);
     }
 
@@ -595,6 +617,13 @@
         visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.adminClubId));
       } else {
         visibleClubs = state.clubs;
+      }
+
+      // Schedule image upload/display — one image covers all clubs for the week
+      const ws = weekForTab(state.tab);
+      body.appendChild(buildScheduleImageUpload(ws, state.tab));
+      if (state.scheduleImages[ws]) {
+        body.appendChild(buildScheduleImageView(ws, state.tab));
       }
 
       visibleClubs.forEach((club, idx) => {
@@ -617,29 +646,40 @@
             },
           }, c.name));
         });
+        btnWrap.appendChild(el('button', {
+          class: 'location-picker-btn',
+          onclick: async () => {
+            state.staffClubId = 'all';
+            await loadAllSchedules();
+            renderBody();
+          },
+        }, 'View All'));
         picker.appendChild(btnWrap);
         body.appendChild(picker);
         return;
       }
 
-      // Show selected club only, with a switch button
-      const selectedClub = state.clubs.find(c => c.id === state.staffClubId);
-      if (selectedClub) {
-        const switchBar = el('div', { class: 'location-switch' });
-        switchBar.appendChild(el('span', { class: 'muted' }, `Viewing: ${selectedClub.name}`));
-        switchBar.appendChild(el('button', {
-          class: 'ghost',
-          onclick: () => { state.staffClubId = null; renderBody(); },
-        }, 'Switch location'));
-        body.appendChild(switchBar);
+      // Show selected club(s) with a switch button
+      const viewingAll = state.staffClubId === 'all';
+      const visibleClubs = viewingAll
+        ? state.clubs
+        : state.clubs.filter(c => c.id === state.staffClubId);
 
-        // Club header + staff search shown ONCE
-        body.appendChild(renderStaffHeader(selectedClub));
+      const switchBar = el('div', { class: 'location-switch' });
+      switchBar.appendChild(el('span', { class: 'muted' },
+        viewingAll ? 'Viewing: All Locations' : `Viewing: ${visibleClubs[0] ? visibleClubs[0].name : ''}`));
+      switchBar.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => { state.staffClubId = null; renderBody(); },
+      }, 'Switch location'));
+      body.appendChild(switchBar);
 
-        // Staff only see current + next week (not week after next)
+      visibleClubs.forEach(club => {
+        body.appendChild(renderStaffHeader(club));
+
         const STAFF_WEEKS = ['current', 'next'];
         STAFF_WEEKS.forEach(weekKey => {
-          const data = (state.weekData[weekKey] || {})[selectedClub.id];
+          const data = (state.weekData[weekKey] || {})[club.id];
           if (!data) return;
           const section = el('div', { class: 'staff-week-section' });
           const heading = el('div', { class: 'club-week-heading' });
@@ -648,14 +688,19 @@
             heading.appendChild(el('button', {
               class: 'ghost',
               style: 'font-size:12px;',
-              onclick: () => openWeekActivityModal(selectedClub, data),
+              onclick: () => openWeekActivityModal(club, data),
             }, 'View Recent Changes'));
           }
           section.appendChild(heading);
-          section.appendChild(buildScheduleGrid(selectedClub, data));
+
+          const ws = weekForTab(weekKey);
+          if (state.scheduleImages[ws]) {
+            section.appendChild(buildScheduleImageView(ws, weekKey));
+          }
+          section.appendChild(buildScheduleGrid(club, data));
           body.appendChild(section);
         });
-      }
+      });
     }
 
     // Apply any existing filter after new rows are rendered
@@ -845,6 +890,110 @@
     // account just see the schedule and the notes; hide the totals table.
     if (isLoggedIn()) {
       wrap.appendChild(buildTotalsGrid(club, data));
+    }
+
+    return wrap;
+  }
+
+  // Build a view-only display of an uploaded schedule image
+  function buildScheduleImageView(weekStart, weekKey) {
+    const imgInfo = state.scheduleImages[weekStart];
+    if (!imgInfo) return el('div');
+
+    const wrap = el('div', { class: 'schedule-image-view' });
+    const isPdf = imgInfo.mime_type === 'application/pdf' ||
+      (imgInfo.original_name && imgInfo.original_name.toLowerCase().endsWith('.pdf'));
+    const src = `/api/schedule-images/${weekStart}`;
+
+    if (isPdf) {
+      const obj = el('object', {
+        type: 'application/pdf',
+        data: src,
+        class: 'schedule-image-pdf',
+      });
+      obj.innerHTML = '<p>Unable to display PDF. <a href="' + src + '" target="_blank">Download instead</a>.</p>';
+      wrap.appendChild(obj);
+    } else {
+      const img = el('img', {
+        src: src,
+        alt: 'Schedule for ' + (WEEK_HEADINGS[weekKey] || weekKey),
+        class: 'schedule-image-img',
+      });
+      wrap.appendChild(img);
+    }
+
+    return wrap;
+  }
+
+  // Build upload/replace/delete controls for schedule images (logged-in only)
+  function buildScheduleImageUpload(weekStart, weekKey) {
+    const wrap = el('div', { class: 'schedule-image-controls' });
+    const imgInfo = state.scheduleImages[weekStart];
+
+    if (imgInfo) {
+      wrap.appendChild(el('span', { class: 'muted', style: 'font-size:12px;' },
+        'Schedule image uploaded: ' + imgInfo.original_name));
+    }
+
+    // Upload / Replace button
+    const fileInput = el('input', {
+      type: 'file',
+      accept: 'image/*,application/pdf',
+      style: 'display:none;',
+    });
+    const label = imgInfo ? 'Replace Image' : 'Upload Schedule Image';
+    const uploadBtn = el('button', {
+      class: 'ghost',
+      style: 'font-size:12px;',
+      onclick: () => fileInput.click(),
+    }, label);
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('week_start', weekStart);
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+      try {
+        const res = await fetch('/api/schedule-images', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Upload failed');
+        }
+        toast('Schedule image uploaded');
+        await loadScheduleImages();
+        renderBody();
+      } catch (e) {
+        toast(e.message, 'err');
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = label;
+      }
+    });
+
+    wrap.appendChild(fileInput);
+    wrap.appendChild(uploadBtn);
+
+    // Delete button (owner only)
+    if (imgInfo && isOwner()) {
+      wrap.appendChild(el('button', {
+        class: 'ghost danger',
+        style: 'font-size:12px;',
+        onclick: async () => {
+          if (!confirm('Remove the schedule image for this week?')) return;
+          try {
+            await api(`/api/schedule-images/${weekStart}`, { method: 'DELETE' });
+            toast('Image removed');
+            await loadScheduleImages();
+            renderBody();
+          } catch (e) { toast(e.message, 'err'); }
+        },
+      }, 'Remove Image'));
     }
 
     return wrap;
