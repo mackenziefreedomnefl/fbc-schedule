@@ -754,6 +754,28 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   .data-table th, .data-table td { padding: 6px 8px; }
 }
 
+/* Club header with inline nav */
+.club-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.club-header-date {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Team divider edit button */
+.team-edit-btn {
+  font-size: 11px !important;
+  padding: 1px 8px !important;
+  margin-left: 10px;
+  opacity: 0.6;
+}
+.team-edit-btn:hover { opacity: 1; }
+
 /* Past week navigation */
 .week-nav-btn {
   font-size: 12px !important;
