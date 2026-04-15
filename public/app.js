@@ -769,11 +769,13 @@
         class: 'ghost',
         onclick: () => openRosterModal(club),
       }, 'Add/Remove Staff'));
-      draftBar.appendChild(el('button', {
-        class: 'ghost danger',
-        disabled: !data || !data.schedule,
-        onclick: () => openClearScheduleModal(club, data),
-      }, 'Clear Schedule'));
+      if (isOwner()) {
+        draftBar.appendChild(el('button', {
+          class: 'ghost danger',
+          disabled: !data || !data.schedule,
+          onclick: () => openClearScheduleModal(club, data),
+        }, 'Clear Schedule'));
+      }
 
       // Publish (owner) / Send for Review (manager)
       // Green = first time sending. Orange = resend (changes after previous send).
@@ -1168,8 +1170,13 @@
       class: adminTab === 'activity' ? 'active' : '',
       onclick: () => { adminTab = 'activity'; renderTab(); },
     }, 'Activity');
+    const importTab = el('button', {
+      class: adminTab === 'import' ? 'active' : '',
+      onclick: () => { adminTab = 'import'; renderTab(); },
+    }, 'Import');
     tabs.appendChild(usersTab);
     tabs.appendChild(activityTab);
+    tabs.appendChild(importTab);
     content.appendChild(tabs);
 
     const tabBody = el('div');
@@ -1186,9 +1193,11 @@
     function renderTab() {
       usersTab.className = adminTab === 'users' ? 'active' : '';
       activityTab.className = adminTab === 'activity' ? 'active' : '';
+      importTab.className = adminTab === 'import' ? 'active' : '';
       tabBody.innerHTML = '';
       if (adminTab === 'users') renderUsersTab(tabBody);
-      else renderActivityTab(tabBody);
+      else if (adminTab === 'activity') renderActivityTab(tabBody);
+      else if (adminTab === 'import') renderImportTab(tabBody);
     }
 
     openModal(content, { wide: true });
@@ -1465,6 +1474,127 @@
     loadPage();
   }
 
+  function renderImportTab(container) {
+    container.appendChild(el('p', { class: 'muted' },
+      'Import schedule data from a JSON file. Shifts are matched to employees by name. Existing shifts for the target week will be overwritten.'));
+
+    // Club picker
+    const clubSelect = el('select');
+    state.clubs.forEach(c => {
+      clubSelect.appendChild(el('option', { value: c.id }, c.name));
+    });
+
+    // Week picker
+    const weekInput = el('input', { type: 'date', value: mondayOf(new Date()) });
+
+    // File input
+    const fileInput = el('input', { type: 'file', accept: '.json' });
+    fileInput.style.width = 'auto';
+
+    // Preview area
+    const preview = el('div', { style: 'margin-top:12px;' });
+
+    // Result area
+    const result = el('div', { style: 'margin-top:12px;' });
+
+    container.appendChild(el('label', {}, ['Club', clubSelect]));
+    container.appendChild(el('label', {}, ['Week starting (Monday)', weekInput]));
+    container.appendChild(el('label', {}, ['JSON file', fileInput]));
+
+    // Format help
+    const helpText = el('details', { style: 'margin:12px 0;font-size:13px;' }, [
+      el('summary', { style: 'cursor:pointer;color:var(--accent);' }, 'JSON format reference'),
+      el('pre', { style: 'background:var(--panel);padding:10px;border-radius:6px;overflow-x:auto;font-size:12px;margin-top:6px;' },
+`{
+  "shifts": [
+    { "employee_name": "John Smith", "day_index": 0, "shift_text": "East" },
+    { "employee_name": "Jane Doe", "day_index": 1, "shift_text": "West" }
+  ],
+  "totals": [
+    { "location": "Jacksonville Beach", "day_index": 0, "count_text": "3" }
+  ],
+  "notes": "Optional schedule notes"
+}`),
+      el('p', { class: 'muted', style: 'margin-top:6px;' },
+        'day_index: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun. Employee names must match the roster exactly.'),
+    ]);
+    container.appendChild(helpText);
+
+    container.appendChild(preview);
+
+    // Parse and preview on file select
+    let parsedData = null;
+    fileInput.addEventListener('change', () => {
+      preview.innerHTML = '';
+      result.innerHTML = '';
+      parsedData = null;
+      const file = fileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          parsedData = JSON.parse(reader.result);
+          const shiftCount = Array.isArray(parsedData.shifts) ? parsedData.shifts.length : 0;
+          const totalCount = Array.isArray(parsedData.totals) ? parsedData.totals.length : 0;
+          const hasNotes = parsedData.notes ? 'yes' : 'no';
+          preview.appendChild(el('div', { style: 'padding:10px;background:var(--panel);border-radius:6px;' }, [
+            el('strong', {}, 'Preview: '),
+            el('span', {}, `${shiftCount} shifts, ${totalCount} totals, notes: ${hasNotes}`),
+          ]));
+        } catch (e) {
+          preview.appendChild(el('div', { class: 'error' }, `Invalid JSON: ${e.message}`));
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    const importBtn = el('button', {
+      class: 'primary',
+      style: 'margin-top:10px;',
+      onclick: async () => {
+        result.innerHTML = '';
+        if (!parsedData) {
+          result.appendChild(el('div', { class: 'error' }, 'Select a JSON file first'));
+          return;
+        }
+        const clubId = clubSelect.value;
+        const weekVal = weekInput.value;
+        if (!weekVal) {
+          result.appendChild(el('div', { class: 'error' }, 'Select a week'));
+          return;
+        }
+        importBtn.disabled = true;
+        importBtn.textContent = 'Importing...';
+        try {
+          const res = await api(`/api/clubs/${clubId}/import`, {
+            method: 'POST',
+            body: {
+              week_start: weekVal,
+              shifts: parsedData.shifts || [],
+              totals: parsedData.totals || [],
+              notes: parsedData.notes || null,
+            },
+          });
+          let msg = `Imported ${res.imported} entries.`;
+          if (res.skipped && res.skipped.length) {
+            msg += ` Skipped (name not found): ${res.skipped.join(', ')}`;
+          }
+          result.appendChild(el('div', { class: 'ok', style: 'font-weight:600;' }, msg));
+          toast('Import complete');
+          await loadAllSchedules();
+          renderBody();
+        } catch (e) {
+          result.appendChild(el('div', { class: 'error' }, e.message));
+        } finally {
+          importBtn.disabled = false;
+          importBtn.textContent = 'Import Schedule';
+        }
+      },
+    }, 'Import Schedule');
+    container.appendChild(importBtn);
+    container.appendChild(result);
+  }
+
   function describeAuditEntry(e) {
     const d = e.details || {};
     const club = e.club_name || d.club_name || '';
@@ -1502,6 +1632,8 @@
       }
       case 'schedule_cleared':
         return `cleared all shifts for ${club || d.club_name || 'club'} — week of ${d.week_start}`;
+      case 'schedule_imported':
+        return `imported ${d.imported_count || 0} entries for ${club || d.club_name || 'club'} — week of ${d.week_start}`;
       case 'time_off_applied':
         return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
       case 'user_create':
