@@ -784,9 +784,33 @@
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
 
+    // Week nav arrows + date range inline with club name
     if (isLoggedIn() && data) {
+      const ws = weekForTab(weekKey);
+      header.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(-1),
+        title: 'Previous week',
+      }, '\u25C0'));
+      if (isPastView()) {
+        header.appendChild(el('span', { class: 'past-week-badge' }, 'PAST'));
+      }
+      header.appendChild(el('span', { class: 'club-header-date' }, fmtWeek(ws)));
+      header.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(1),
+        title: 'Next week',
+      }, '\u25B6'));
+      if (isPastView()) {
+        header.appendChild(el('button', {
+          class: 'ghost',
+          style: 'font-size:11px;',
+          onclick: () => jumpToCurrentWeek(),
+        }, 'Back to Current'));
+      }
       header.appendChild(el('button', {
         class: 'ghost',
+        style: 'font-size:11px;',
         onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
       }, 'PDF'));
     }
@@ -841,12 +865,8 @@
         onclick: () => saveDraftForClub(club.id),
       }, 'Save Draft'));
 
-      // Add/Remove Staff + Clear Schedule — pushed to far right
+      // Clear Schedule — pushed to far right
       draftBar.appendChild(el('div', { class: 'spacer' }));
-      draftBar.appendChild(el('button', {
-        class: 'ghost',
-        onclick: () => openRosterModal(club),
-      }, 'Add/Remove Staff'));
       if (isOwner()) {
         draftBar.appendChild(el('button', {
           class: 'ghost danger',
@@ -895,65 +915,6 @@
 
       wrap.appendChild(draftBar);
     }
-
-    // Week heading with inline tabs (signed-in) or plain label (staff)
-    const weekHeading = el('div', { class: 'club-week-heading' });
-
-    // Past-week banner
-    if (isPastView()) {
-      weekHeading.classList.add('past-week');
-      weekHeading.appendChild(el('span', { class: 'past-week-badge' }, 'PAST SCHEDULE'));
-    }
-
-    // Week date range label
-    const ws = weekForTab(weekKey);
-    weekHeading.appendChild(el('span', {},
-      isPastView()
-        ? fmtWeek(ws)
-        : (WEEK_HEADINGS[weekKey] || 'Current Work Week')));
-
-    if (isLoggedIn()) {
-      // Back / Forward arrows
-      weekHeading.appendChild(el('button', {
-        class: 'ghost week-nav-btn',
-        onclick: () => navigateWeek(-1),
-        title: 'Previous week',
-      }, '\u25C0'));
-      weekHeading.appendChild(el('button', {
-        class: 'ghost week-nav-btn',
-        onclick: () => navigateWeek(1),
-        title: 'Next week',
-      }, '\u25B6'));
-
-      // "Back to current" button when viewing past
-      if (isPastView()) {
-        weekHeading.appendChild(el('button', {
-          class: 'primary',
-          style: 'font-size:11px; padding:4px 10px;',
-          onclick: () => jumpToCurrentWeek(),
-        }, 'Back to Current Week'));
-      }
-
-      // Week tabs (only shown when not in past view)
-      if (!isPastView()) {
-        WEEK_KEYS.forEach(key => {
-          weekHeading.appendChild(el('button', {
-            class: 'week-tab-inline' + (state.tab === key ? ' active' : ''),
-            onclick: () => switchTab(key),
-          }, WEEK_LABELS[key]));
-        });
-      }
-
-      // Recent activity button — shows activity for this specific week
-      if (data && data.recent_updates && data.recent_updates.length) {
-        weekHeading.appendChild(el('button', {
-          class: 'ghost',
-          style: 'font-size:12px;',
-          onclick: () => openWeekActivityModal(club, data),
-        }, `Activity (${data.recent_updates.length})`));
-      }
-    }
-    wrap.appendChild(weekHeading);
 
     wrap.appendChild(buildScheduleGrid(club, data));
     // Totals are a management-only view. Regular staff visiting without an
@@ -1118,17 +1079,46 @@
     // First team's divider goes in thead ABOVE the date row
     if (showDividers && sortedKeys[0]) {
       const divider = el('tr', { class: 'team-divider' });
-      divider.appendChild(el('th', { colspan: 8 }, sortedKeys[0]));
+      const th = el('th', { colspan: 8 });
+      th.appendChild(el('span', {}, sortedKeys[0]));
+      if (canEditTeam(club.id, sortedKeys[0])) {
+        th.appendChild(el('button', {
+          class: 'ghost team-edit-btn',
+          onclick: () => openRosterModal(club),
+        }, 'Edit Staff'));
+      }
+      divider.appendChild(th);
       thead.appendChild(divider);
     }
     thead.appendChild(buildHeaderRow('Employee'));
+    // Single-team clubs (like St. Augustine) don't get dividers, so put
+    // Edit Staff on the club name header instead.
+    if (!showDividers && canEditClub(club.id)) {
+      const editRow = el('tr', { class: 'team-divider' });
+      const editTd = el('th', { colspan: 8 });
+      editTd.appendChild(el('span', {}, club.name));
+      editTd.appendChild(el('button', {
+        class: 'ghost team-edit-btn',
+        onclick: () => openRosterModal(club),
+      }, 'Edit Staff'));
+      editRow.appendChild(editTd);
+      thead.insertBefore(editRow, thead.firstChild);
+    }
     table.appendChild(thead);
 
     sortedKeys.forEach((teamName, idx) => {
       // Second+ teams get a divider + repeated date header in tbody
       if (showDividers && teamName && idx > 0) {
         const divider = el('tr', { class: 'team-divider' });
-        divider.appendChild(el('td', { colspan: 8 }, teamName));
+        const td = el('td', { colspan: 8 });
+        td.appendChild(el('span', {}, teamName));
+        if (canEditTeam(club.id, teamName)) {
+          td.appendChild(el('button', {
+            class: 'ghost team-edit-btn',
+            onclick: () => openRosterModal(club),
+          }, 'Edit Staff'));
+        }
+        divider.appendChild(td);
         tbody.appendChild(divider);
         const repeatHeader = buildHeaderRow('');
         repeatHeader.classList.add('repeat-header');
