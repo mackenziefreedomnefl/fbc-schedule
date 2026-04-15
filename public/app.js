@@ -763,12 +763,17 @@
         onclick: () => saveDraftForClub(club.id),
       }, 'Save Draft'));
 
-      // Add/Remove Staff — pushed to far right
+      // Add/Remove Staff + Clear Schedule — pushed to far right
       draftBar.appendChild(el('div', { class: 'spacer' }));
       draftBar.appendChild(el('button', {
         class: 'ghost',
         onclick: () => openRosterModal(club),
       }, 'Add/Remove Staff'));
+      draftBar.appendChild(el('button', {
+        class: 'ghost danger',
+        disabled: !data || !data.schedule,
+        onclick: () => openClearScheduleModal(club, data),
+      }, 'Clear Schedule'));
 
       // Publish (owner) / Send for Review (manager)
       // Green = first time sending. Orange = resend (changes after previous send).
@@ -1495,6 +1500,8 @@
       case 'schedule_published': {
         return `approved ${club || d.club_name || 'club'}${team} schedule — week of ${d.week_start}`;
       }
+      case 'schedule_cleared':
+        return `cleared all shifts for ${club || d.club_name || 'club'} — week of ${d.week_start}`;
       case 'time_off_applied':
         return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
       case 'user_create':
@@ -1598,6 +1605,42 @@
           } catch (e) { errDiv.textContent = e.message; }
         },
       }, 'Send'),
+    ]));
+    openModal(content);
+  }
+
+  // -------- clear schedule modal --------
+  function openClearScheduleModal(club, data) {
+    if (!data || !data.schedule) return;
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Clear Schedule — ${club.name}`));
+    content.appendChild(el('p', {},
+      `This will delete all shifts, staffing totals, and notes for the week of ${data.schedule.week_start}.`));
+    content.appendChild(el('p', { style: 'color:var(--danger);font-weight:600;' },
+      'This action cannot be undone.'));
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(errDiv);
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'danger',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            await api(`/api/schedules/${data.schedule.id}/clear`, { method: 'POST' });
+            // Discard any pending changes for this club
+            state.pendingChanges.forEach((v, k) => {
+              if (Number(v.club_id) === club.id) state.pendingChanges.delete(k);
+            });
+            state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== club.id);
+            state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== club.id);
+            closeModal();
+            toast('Schedule cleared');
+            await loadAllSchedules();
+            renderBody();
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Clear Everything'),
     ]));
     openModal(content);
   }

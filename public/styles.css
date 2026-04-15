@@ -41,6 +41,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { background: var(--accent-2); }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.ghost { background: transparent; }
+button.ghost.danger { background: transparent; color: var(--danger); border-color: transparent; }
+button.ghost.danger:hover { background: var(--danger); color: #fff; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 input, select, textarea {

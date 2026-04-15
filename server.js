@@ -120,6 +120,7 @@ function describeEmailEvent(e) {
     case 'schedule_published': {
       return `approved ${d.club_name || 'club'} schedule — week of ${d.week_start || '?'}`;
     }
+    case 'schedule_cleared': return `cleared all shifts for ${d.club_name || 'club'} — week of ${d.week_start || '?'}`;
     case 'notice_edit': return `updated the shift notice`;
     case 'time_off_applied': return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
     case 'user_create': return `created user ${d.email} (${d.role || '?'})`;
@@ -856,6 +857,30 @@ app.patch('/api/schedules/:id/notes', ah(async (req, res) => {
       ? rows[0].week_start.toISOString().slice(0, 10)
       : rows[0].week_start,
     preview: (notes || '').slice(0, 80),
+  });
+  res.json({ ok: true });
+}));
+
+// Clear all shifts and location totals for a schedule (manager+)
+app.post('/api/schedules/:id/clear', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const scheduleId = Number(req.params.id);
+  const { rows: schedRows } = await pool.query('SELECT * FROM schedules WHERE id = $1', [scheduleId]);
+  const sched = schedRows[0];
+  if (!sched) return res.status(404).json({ error: 'schedule not found' });
+  if (!canEditClub(user, sched.club_id)) {
+    return res.status(403).json({ error: 'you do not manage this club' });
+  }
+  const weekStart = sched.week_start instanceof Date
+    ? sched.week_start.toISOString().slice(0, 10) : sched.week_start;
+  await pool.query('DELETE FROM shifts WHERE schedule_id = $1', [scheduleId]);
+  await pool.query('DELETE FROM location_totals WHERE schedule_id = $1', [scheduleId]);
+  await pool.query('UPDATE schedules SET notes = \'\', updated_at = NOW() WHERE id = $1', [scheduleId]);
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [sched.club_id]);
+  await audit(user, 'schedule_cleared', sched.club_id, null, {
+    week_start: weekStart,
+    club_name: clubRows[0] ? clubRows[0].name : '',
   });
   res.json({ ok: true });
 }));
