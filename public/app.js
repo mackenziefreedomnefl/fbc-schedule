@@ -684,13 +684,12 @@
           }
           section.appendChild(heading);
 
-          // Show schedule image if one is uploaded for this week
+          // Show schedule image above the grid if one is uploaded
           const ws = weekForTab(weekKey);
           if (state.scheduleImages[ws]) {
             section.appendChild(buildScheduleImageView(ws, weekKey));
-          } else {
-            section.appendChild(buildScheduleGrid(selectedClub, data));
           }
+          section.appendChild(buildScheduleGrid(selectedClub, data));
           body.appendChild(section);
         });
       }
