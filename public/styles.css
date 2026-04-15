@@ -493,6 +493,45 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 .schedule-table td.day-cell input:focus { background: rgba(76, 139, 245, 0.12); }
 
+/* Shift picker */
+.shift-picker-btn {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; color: var(--muted); cursor: pointer;
+  font-size: 8px; padding: 2px 4px; opacity: 0;
+  transition: opacity 0.15s;
+}
+.day-cell:hover .shift-picker-btn,
+.day-cell:focus-within .shift-picker-btn { opacity: 0.6; }
+.shift-picker-btn:hover { opacity: 1 !important; }
+
+.shift-picker {
+  position: absolute; top: 100%; left: 0; z-index: 30;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  padding: 6px; display: flex; flex-wrap: wrap; gap: 4px;
+  min-width: 200px; max-width: 280px;
+}
+.shift-pick-btn {
+  padding: 5px 10px; font-size: 12px; border-radius: 5px;
+  cursor: pointer; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text);
+  white-space: nowrap;
+}
+.shift-pick-btn:hover { border-color: var(--accent); background: rgba(37, 99, 235, 0.08); }
+.shift-pick-reqoff { color: var(--danger); border-color: rgba(229, 72, 77, 0.3); }
+.shift-pick-reqoff:hover { background: rgba(229, 72, 77, 0.08); border-color: var(--danger); }
+.shift-pick-clear { color: var(--muted); font-size: 11px; }
+.shift-pick-other { color: var(--accent); }
+
+.shift-pick-other-wrap {
+  display: flex; gap: 4px; width: 100%;
+}
+.shift-pick-other-input {
+  flex: 1; padding: 4px 8px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--panel);
+}
+
 .team-divider td {
   background: var(--panel-2);
   color: var(--muted);

@@ -149,6 +149,13 @@
     return []; // St. Augustine (and anything else) has no sub-teams
   }
 
+  // Quick-pick shift options per club. "Req Off" and "Clear" are always added.
+  function shiftOptionsForClub(clubName) {
+    if (clubName === 'Jacksonville') return ['East', 'West', 'Beach'];
+    if (clubName === 'St. Augustine') return ['Camachee', 'Shipyard'];
+    return [];
+  }
+
   // Cell text coloring rules: managers type keywords and the text re-colors
   // to give a quick visual read of the grid.
   function cellColorFor(text) {
@@ -1030,6 +1037,105 @@
     return wrap;
   }
 
+  // Shift picker popover — shows quick-pick buttons for common shifts
+  function openShiftPicker(anchorTd, clubName, input, applyValue) {
+    // Close any existing picker
+    const existing = document.querySelector('.shift-picker');
+    if (existing) existing.remove();
+
+    const picker = el('div', { class: 'shift-picker' });
+    const options = shiftOptionsForClub(clubName);
+
+    // Location buttons
+    options.forEach(opt => {
+      picker.appendChild(el('button', {
+        class: 'shift-pick-btn',
+        onclick: (e) => {
+          e.stopPropagation();
+          applyValue(opt);
+          picker.remove();
+          input.focus();
+        },
+      }, opt));
+    });
+
+    // Req Off
+    picker.appendChild(el('button', {
+      class: 'shift-pick-btn shift-pick-reqoff',
+      onclick: (e) => {
+        e.stopPropagation();
+        applyValue('Req Off');
+        picker.remove();
+        input.focus();
+      },
+    }, 'Req Off'));
+
+    // Other — expand a text input for custom entry
+    const otherBtn = el('button', {
+      class: 'shift-pick-btn shift-pick-other',
+      onclick: (e) => {
+        e.stopPropagation();
+        otherBtn.style.display = 'none';
+        otherWrap.style.display = 'flex';
+        otherInput.focus();
+      },
+    }, 'Other');
+    picker.appendChild(otherBtn);
+
+    const otherWrap = el('div', { class: 'shift-pick-other-wrap', style: 'display:none;' });
+    const otherInput = el('input', {
+      type: 'text',
+      class: 'shift-pick-other-input',
+      placeholder: 'e.g. 12 - Close East',
+    });
+    otherInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (otherInput.value.trim()) {
+          applyValue(otherInput.value.trim());
+        }
+        picker.remove();
+        input.focus();
+      }
+    });
+    const otherOk = el('button', {
+      class: 'shift-pick-btn',
+      onclick: (e) => {
+        e.stopPropagation();
+        if (otherInput.value.trim()) {
+          applyValue(otherInput.value.trim());
+        }
+        picker.remove();
+        input.focus();
+      },
+    }, 'OK');
+    otherWrap.appendChild(otherInput);
+    otherWrap.appendChild(otherOk);
+    picker.appendChild(otherWrap);
+
+    // Clear button
+    picker.appendChild(el('button', {
+      class: 'shift-pick-btn shift-pick-clear',
+      onclick: (e) => {
+        e.stopPropagation();
+        applyValue('');
+        picker.remove();
+        input.focus();
+      },
+    }, 'Clear'));
+
+    anchorTd.appendChild(picker);
+
+    // Close on outside click
+    const close = (e) => {
+      if (!picker.contains(e.target) && e.target !== anchorTd.querySelector('.shift-picker-btn')) {
+        picker.remove();
+        document.removeEventListener('mousedown', close);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', close), 0);
+  }
+
   function buildScheduleGrid(club, data) {
     const wrap = el('div', { class: 'schedule-wrap' });
     const table = el('table', { class: 'schedule-table' });
@@ -1143,17 +1249,33 @@
             // Amber if locally edited OR edited since last review
             const isPendingReview = pendingReviewCells.has(`${emp.id}:${d}`);
             if (pending || isPendingReview) input.classList.add('cell-dirty');
-            input.addEventListener('input', () => {
-              input.style.color = cellColorFor(input.value);
+
+            const applyValue = (val) => {
+              input.value = val;
+              input.style.color = cellColorFor(val);
               const prevVal = state.pendingChanges.has(key)
                 ? state.pendingChanges.get(key).shift_text : serverVal;
               recordEdit(key,
                 { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d, club_id: club.id },
-                prevVal, input.value, serverVal);
+                prevVal, val, serverVal);
               input.classList.toggle('cell-dirty',
-                input.value !== serverVal || isPendingReview);
-            });
+                val !== serverVal || isPendingReview);
+            };
+
+            input.addEventListener('input', () => applyValue(input.value));
+
+            // Shift picker trigger
+            const pickerBtn = el('button', {
+              class: 'shift-picker-btn',
+              tabindex: '-1',
+              onclick: (e) => {
+                e.stopPropagation();
+                openShiftPicker(td, club.name, input, applyValue);
+              },
+            }, '\u25BC');
+
             td.appendChild(input);
+            td.appendChild(pickerBtn);
             // If a shift was removed (old had text, current is empty), show
             // strikethrough of the old value so owners can see what was deleted.
             // Only visible to signed-in users, not staff.
