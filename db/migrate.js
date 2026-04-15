@@ -4,6 +4,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+const _env = (k) => process.env[k] || '';
 
 // Map of club name -> env var holding that club's password.
 // A password is only ever written to the DB if the column is still null,
@@ -80,6 +81,19 @@ async function main() {
     const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
     console.log('[migrate] applying schema...');
     await pool.query(schemaSql);
+
+    // One-shot: clear all schedule data if requested. Marks seeder flags
+    // as done so example data doesn't get re-inserted on this same run.
+    if (String(_env('WIPE_SCHEDULES') || '').toLowerCase() === 'true') {
+      await pool.query('DELETE FROM shifts');
+      await pool.query('DELETE FROM location_totals');
+      await pool.query('DELETE FROM schedules');
+      await pool.query("DELETE FROM audit_log");
+      // Mark seeders as already run so they don't refill the data we just cleared
+      await pool.query("INSERT INTO app_state (key, value) VALUES ('example_seeded', 'cleared') ON CONFLICT (key) DO UPDATE SET value = 'cleared'");
+      await pool.query("INSERT INTO app_state (key, value) VALUES ('import_schedule_v2', 'cleared') ON CONFLICT (key) DO UPDATE SET value = 'cleared'");
+      console.log('[migrate] CLEARED all schedule data, totals, and audit log. Remove CLEAR_ALL_SCHEDULES env var now.');
+    }
 
     // Seed clubs/employees if DB empty
     const { rows: clubCountRows } = await pool.query('SELECT COUNT(*)::int AS c FROM clubs');
@@ -215,6 +229,9 @@ async function main() {
     // Controlled by the app_state flag 'example_seeded' so it only runs once.
     // Set RESET_EXAMPLE_DATA=true to force it to run again.
     await seedExampleData(pool);
+
+    // Import specific schedule data from screenshots (one-shot)
+    await importScheduleData(pool);
 
     console.log('[migrate] done.');
   } catch (err) {
@@ -419,6 +436,164 @@ async function seedExampleData(pool) {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
   );
   console.log('[migrate] example data seeded');
+}
+
+// ---------- schedule data import ----------
+const IMPORT_DATA = {
+  'Jacksonville': {
+    '2026-03-30': { // Mar 30 - Apr 5
+      shifts: {
+        'Nick Tragemann':    ['East','East','','','','East','East'],
+        'Alison Conner':     ['West','West','','','West','Req Off',''],
+        'Sergio Palacios':   ['','','','East','East','East','East'],
+        'Sam Wentworth':     ['','','West','West','','West','West'],
+        'Branson Messer':    ['','','','','','',''],
+        'William Krupsky':   ['','','','','','',''],
+        'Davin Barbour':     ['East','','','','East','East','East'],
+        'Delaney Holcomb':   ['','','','East','','East','East'],
+        'Aiden Rock':        ['','','','','','',''],
+        'William Eisner':    ['','','East','','West','East','West'],
+        'Dustyn Burd':       ['','Beach','','Beach','','Beach','Beach'],
+        'Michael Mobley':    ['','Beach','Beach','','Beach','Beach',''],
+        'Brandon Lanier':    ['','','Beach','','Beach','Beach',''],
+        'Tyler Boggess':     ['','','','','','',''],
+        'Morgan Tragemann':  ['Beach','','East','Beach','','West','Beach'],
+        'Justice Bramer':    ['Beach','','Beach','Beach','Req Off','Req Off',''],
+        'Jaron Firesheets':  ['','Beach','','Beach','Beach','','Beach'],
+        'Alec Murino':       ['Beach','','','','Beach','','Beach'],
+        'Mackenzie Shealy':  ['','','','','','',''],
+        'Brandon McSwigan':  ['Beach','','','','Beach','','Beach'],
+      },
+      totals: { JB: [4,3,3,3,4,5,5], JCE: [2,1,2,2,3,4,4], JCW: [1,1,1,1,2,2,2] },
+    },
+    '2026-04-06': { // Apr 6 - Apr 12
+      shifts: {
+        'Nick Tragemann':    ['East','East','','','East','','East'],
+        'Alison Conner':     ['West','West','','','West','West',''],
+        'Sergio Palacios':   ['','','','East','East','East','East'],
+        'Sam Wentworth':     ['','','West','West','','West','West'],
+        'Branson Messer':    ['','','','','','',''],
+        'William Krupsky':   ['','','','','','',''],
+        'Davin Barbour':     ['','','','','West','East','East'],
+        'Delaney Holcomb':   ['','','','East','','East','East'],
+        'Aiden Rock':        ['','','','','','','West'],
+        'William Eisner':    ['','Open - 4 East','','','East','East',''],
+        'Dustyn Burd':       ['','Beach','','Beach','','Beach','Beach'],
+        'Michael Mobley':    ['Beach','Req Off','Req Off','','Beach','Beach',''],
+        'Brandon Lanier':    ['','Beach','Beach','','Beach','Beach',''],
+        'Tyler Boggess':     ['','','','','','Beach',''],
+        'Morgan Tragemann':  ['Beach','','East','Beach','','',''],
+        'Justice Bramer':    ['Beach','','Beach','','Beach','','Beach'],
+        'Jaron Firesheets':  ['','','','Beach','','Beach','Beach'],
+        'Alec Murino':       ['Beach','','','','Beach','','Beach'],
+        'Mackenzie Shealy':  ['','','','','','',''],
+        'Brandon McSwigan':  ['','Beach','','Beach','','','Beach'],
+      },
+      totals: { JB: [4,3,3,3,4,5,5], JCE: [1,1,1,2,3,4,4], JCW: [1,1,1,1,2,2,2] },
+    },
+  },
+  'St. Augustine': {
+    '2026-03-30': {
+      shifts: {
+        'Sean Dressander':        ['Camachee','Camachee','Req Off','Req Off','Req Off','Req Off','Req Off'],
+        'Gavin Carillo':          ['','','Camachee','Camachee','Camachee','Camachee','Camachee'],
+        'Jaxin Gamber':           ['','','','','','','Shipyard'],
+        'Zoe Henley':             ['Camachee','','','','Camachee','','Req Off'],
+        'Michael Guillet':        ['','','','','','Shipyard','Camachee'],
+        'Julia Catlett':          ['Camachee','Camachee','Camachee','','','Camachee','Camachee'],
+        'Ryan Constantino':       ['','Camachee','','Camachee','','Camachee',''],
+        'John Gleaton-Hernandez': ['','Camachee','','Camachee','','','Camachee'],
+        'Bill Harris':            ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
+        'Aidan Popp':             ['','','','','','Camachee','12 - Close Camachee'],
+        'Austin Corzo':           ['','','','','','Camachee',''],
+        'Jack Fant':              ['Shipyard','Shipyard','','','Shipyard','Shipyard','Shipyard'],
+        'Alexander Vida':         ['','','Shipyard','Shipyard','Shipyard','Shipyard',''],
+      },
+      totals: { CC: [4,3,3,3,4,5,5], SY: [1,1,1,1,1,2,2] },
+    },
+    '2026-04-06': {
+      shifts: {
+        'Sean Dressander':        ['Camachee','Camachee','','','Camachee','','Camachee'],
+        'Gavin Carillo':          ['','','Camachee','Camachee','Camachee','Camachee',''],
+        'Jaxin Gamber':           ['','','','Camachee','','Shipyard','Shipyard'],
+        'Zoe Henley':             ['Req Off','Req Off','Req Off','Req Off','Camachee','Camachee','Camachee'],
+        'Michael Guillet':        ['','','','','Req Off','Req Off','Req Off'],
+        'Julia Catlett':          ['Camachee','','Camachee','','Camachee','Camachee',''],
+        'Ryan Constantino':       ['Camachee','Camachee','','','Req Off','Req Off','Req Off'],
+        'John Gleaton-Hernandez': ['','Camachee','','Camachee','','Camachee',''],
+        'Bill Harris':            ['Camachee','','Camachee','','','','Camachee'],
+        'Aidan Popp':             ['','','','','','Req Off','Camachee'],
+        'Austin Corzo':           ['','','','12 - Close Camachee','','Camachee','Camachee'],
+        'Jack Fant':              ['Shipyard','Shipyard','','','Shipyard','','Shipyard'],
+        'Alexander Vida':         ['','','Shipyard','Shipyard','Camachee','Shipyard',''],
+      },
+      totals: { CC: [4,3,3,3,5,5,5], SY: [1,1,1,1,1,2,2] },
+    },
+  },
+};
+
+async function importScheduleData(pool) {
+  const { rows: flagRows } = await pool.query(
+    "SELECT value FROM app_state WHERE key = 'import_schedule_v2'"
+  );
+  if (flagRows[0] && process.env.FORCE_IMPORT !== 'true') return;
+
+  console.log('[migrate] importing schedule data from screenshots...');
+  for (const [clubName, weeks] of Object.entries(IMPORT_DATA)) {
+    const { rows: clubRows } = await pool.query('SELECT id FROM clubs WHERE name = $1', [clubName]);
+    if (!clubRows[0]) { console.log(`[migrate] club ${clubName} not found, skipping`); continue; }
+    const clubId = clubRows[0].id;
+
+    for (const [weekStart, weekData] of Object.entries(weeks)) {
+      // Get or create schedule
+      let scheduleId;
+      const { rows: sr } = await pool.query(
+        'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [clubId, weekStart]);
+      if (sr[0]) {
+        scheduleId = sr[0].id;
+      } else {
+        const { rows: cr } = await pool.query(
+          'INSERT INTO schedules (club_id, week_start) VALUES ($1,$2) RETURNING id', [clubId, weekStart]);
+        scheduleId = cr[0].id;
+      }
+
+      // Import shifts (overwrite existing)
+      for (const [empName, days] of Object.entries(weekData.shifts)) {
+        const { rows: empRows } = await pool.query(
+          'SELECT id FROM employees WHERE club_id = $1 AND name = $2', [clubId, empName]);
+        if (!empRows[0]) continue;
+        const empId = empRows[0].id;
+        for (let d = 0; d < 7; d++) {
+          const text = days[d] || '';
+          await pool.query(
+            `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (schedule_id, employee_id, day_index)
+             DO UPDATE SET shift_text = EXCLUDED.shift_text`,
+            [scheduleId, empId, d, text]);
+        }
+      }
+
+      // Import totals (overwrite existing)
+      for (const [loc, counts] of Object.entries(weekData.totals || {})) {
+        for (let d = 0; d < 7; d++) {
+          await pool.query(
+            `INSERT INTO location_totals (schedule_id, location, day_index, count_text)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (schedule_id, location, day_index)
+             DO UPDATE SET count_text = EXCLUDED.count_text`,
+            [scheduleId, loc, d, String(counts[d])]);
+        }
+      }
+
+      console.log(`[migrate] imported ${clubName} week of ${weekStart}`);
+    }
+  }
+
+  await pool.query(
+    `INSERT INTO app_state (key, value) VALUES ('import_schedule_v2', NOW()::text)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`);
+  console.log('[migrate] schedule import complete');
 }
 
 main();

@@ -3,11 +3,132 @@ const path = require('path');
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
+const nodemailer = require('nodemailer');
 const { Pool } = require('pg');
 const PgSession = require('connect-pg-simple')(session);
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
 const PORT = process.env.PORT || 3000;
+const DAYS_SERVER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// ---------- email notifications ----------
+// Set SMTP_USER + SMTP_PASS (Gmail app password) + NOTIFY_EMAILS in Railway
+// to enable email alerts. Changes are batched into a single email every 60s.
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER;
+const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || process.env.OWNER_EMAILS || '')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const EMAIL_ENABLED = !!(SMTP_USER && SMTP_PASS && NOTIFY_EMAILS.length);
+
+// SMTP config. Defaults to Microsoft 365 (Outlook/Exchange).
+// Override with SMTP_HOST / SMTP_PORT env vars for other providers.
+const SMTP_HOST = process.env.SMTP_HOST || 'smtp.office365.com';
+const SMTP_PORT = parseInt(process.env.SMTP_PORT, 10) || 587;
+
+let smtpTransport = null;
+if (EMAIL_ENABLED) {
+  smtpTransport = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+  console.log(`[email] enabled — ${SMTP_HOST}:${SMTP_PORT} → ${NOTIFY_EMAILS.join(', ')}`);
+} else {
+  console.log('[email] disabled — set SMTP_USER, SMTP_PASS, and NOTIFY_EMAILS to enable');
+}
+
+const emailBuffer = [];
+let emailFlushTimer = null;
+const EMAIL_BATCH_MS = 60 * 1000; // 60 seconds
+
+function queueEmail(userLabel, action, details) {
+  if (!EMAIL_ENABLED) return;
+  emailBuffer.push({ userLabel, action, details, time: new Date() });
+  if (!emailFlushTimer) {
+    emailFlushTimer = setTimeout(() => {
+      emailFlushTimer = null;
+      flushEmail().catch(err => console.error('[email] flush error', err.message));
+    }, EMAIL_BATCH_MS);
+  }
+}
+
+async function flushEmail() {
+  if (!emailBuffer.length || !smtpTransport) return;
+  const events = emailBuffer.splice(0);
+
+  // Build subject: Location — Manager Name — action
+  const first = events[0];
+  const clubName = (first.details && first.details.club_name) || 'FBC NEFL';
+  const managerName = first.userLabel || 'A manager';
+  const action = first.action === 'schedule_submitted' ? 'sent schedule for review' : 'made changes';
+  const weekStart = (first.details && first.details.week_start) || '';
+  const subject = `${clubName} — ${managerName} ${action}${weekStart ? ' (week of ' + weekStart + ')' : ''}`;
+
+  // Build body
+  const lines = events.map(e => {
+    const t = e.time.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    return `<li><strong>${t}</strong> — ${describeEmailEvent(e)}</li>`;
+  }).join('');
+  const msg = (first.details && first.details.message) ? `<p style="margin:12px 0;padding:10px;background:#f0f4fa;border-radius:6px;"><strong>Note from ${managerName}:</strong> "${first.details.message}"</p>` : '';
+  const html = `
+    <h2 style="margin:0 0 4px;color:#1a2233;">${clubName}</h2>
+    <p style="margin:0 0 12px;color:#5a6a80;">${managerName} ${action}${weekStart ? ' for the week of ' + weekStart : ''}</p>
+    ${msg}
+    <h3 style="margin:16px 0 8px;font-size:14px;color:#5a6a80;">Changes:</h3>
+    <ul style="padding-left:20px;color:#1a2233;">${lines}</ul>
+    <p style="margin-top:20px;">
+      <a href="https://schedule.fbcnefl.com" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">View Schedule</a>
+    </p>
+  `;
+  try {
+    await smtpTransport.sendMail({
+      from: EMAIL_FROM,
+      to: NOTIFY_EMAILS.join(', '),
+      subject,
+      html,
+    });
+    console.log(`[email] sent ${events.length} change(s) to ${NOTIFY_EMAILS.join(', ')}`);
+  } catch (err) {
+    console.error('[email] send failed', err.message);
+  }
+}
+
+function describeEmailEvent(e) {
+  const d = e.details || {};
+  switch (e.action) {
+    case 'cell_edit': {
+      const day = DAYS_SERVER[d.day_index] || 'day';
+      const week = d.week_start || '';
+      if (!d.new_value && d.old_value) return `removed ${d.employee_name}'s ${day} shift (was "${d.old_value}") — week of ${week}`;
+      if (d.new_value && !d.old_value) return `set ${d.employee_name}'s ${day} shift to "${d.new_value}" — week of ${week}`;
+      return `changed ${d.employee_name}'s ${day} shift: "${d.old_value || ''}" → "${d.new_value || ''}" — week of ${week}`;
+    }
+    case 'notes_edit': return `updated notes for week of ${d.week_start || '?'}`;
+    case 'total_edit': {
+      const day = DAYS_SERVER[d.day_index] || 'day';
+      return `set ${d.location} ${day} count to "${d.count_text || '(empty)'}" — week of ${d.week_start || '?'}`;
+    }
+    case 'employee_add': return `added ${d.employee_name} to ${d.team || 'roster'}`;
+    case 'employee_update': return `updated ${d.employee_name}`;
+    case 'employee_archive': return `archived ${d.employee_name}`;
+    case 'schedule_submitted': {
+      const msg = d.message ? ` — "${d.message}"` : '';
+      return `sent ${d.club_name || 'club'} schedule for review — week of ${d.week_start || '?'}${msg}`;
+    }
+    case 'schedule_published': {
+      return `approved ${d.club_name || 'club'} schedule — week of ${d.week_start || '?'}`;
+    }
+    case 'schedule_cleared': return `cleared all shifts for ${d.club_name || 'club'} — week of ${d.week_start || '?'}`;
+    case 'notice_edit': return `updated the shift notice`;
+    case 'time_off_applied': return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
+    case 'user_create': return `created user ${d.email} (${d.role || '?'})`;
+    case 'user_update': return `updated user #${d.target_user_id}`;
+    case 'user_delete': return `deleted user #${d.deleted_user_id}`;
+    default: return e.action;
+  }
+}
 
 const useSsl = String(process.env.PGSSL || '').toLowerCase() === 'true'
   || /railway|render|heroku|amazonaws/i.test(process.env.DATABASE_URL || '');
@@ -94,6 +215,10 @@ async function audit(user, action, clubId, team, details) {
     );
   } catch (e) {
     console.error('[audit] failed to record', action, e.message);
+  }
+  // Only email on Send for Review — not on every cell edit
+  if (action === 'schedule_submitted' || action === 'schedule_published') {
+    queueEmail(userLabel(user), action, details || {});
   }
 }
 
@@ -208,9 +333,12 @@ app.patch('/api/users/:id', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
   const id = Number(req.params.id);
-  const { password, role, club_id, team, name } = req.body || {};
+  const { email, password, role, club_id, team, name } = req.body || {};
   const sets = [];
   const vals = [];
+  if (email) {
+    vals.push(String(email).toLowerCase().trim()); sets.push(`email = $${vals.length}`);
+  }
   if (password) {
     if (password.length < 4) return res.status(400).json({ error: 'password must be at least 4 characters' });
     const hash = await bcrypt.hash(password, 10);
@@ -278,8 +406,8 @@ app.get('/api/audit', ah(async (req, res) => {
 app.get('/api/notifications', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
-  const params = ['schedule_published'];
-  let where = "action = $1 AND created_at >= NOW() - INTERVAL '14 days'";
+  const params = [['schedule_published', 'schedule_submitted']];
+  let where = "action = ANY($1) AND created_at >= NOW() - INTERVAL '14 days'";
   if (!isOwner(user) && user.club_id) {
     params.push(user.club_id);
     where += ' AND club_id = $2';
@@ -316,9 +444,8 @@ app.put('/api/notice', ah(async (req, res) => {
   res.json({ ok: true, text: value });
 }));
 
-// Manager publishes a finished schedule. Any user who can edit the club can
-// call it; we record a schedule_published audit entry which powers owner
-// notifications and shows up in the activity feed.
+// Manager sends schedule for review. Does NOT clear amber — only owner
+// approval (schedule_published) does that. Triggers email notification.
 app.post('/api/clubs/:id/publish', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
@@ -330,7 +457,7 @@ app.post('/api/clubs/:id/publish', ah(async (req, res) => {
   if (!week_start) return res.status(400).json({ error: 'week_start required' });
   const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
   const clubName = clubRows[0] ? clubRows[0].name : '';
-  await audit(user, 'schedule_published', clubId, user.team || null, {
+  await audit(user, 'schedule_submitted', clubId, user.team || null, {
     week_start,
     club_name: clubName,
     team: user.team || null,
@@ -338,6 +465,47 @@ app.post('/api/clubs/:id/publish', ah(async (req, res) => {
   });
   res.json({ ok: true });
 }));
+
+// Owner approves the entire schedule for a week. Works the same way as
+// schedule_published from a baseline perspective — resets the amber state.
+app.post('/api/clubs/:id/approve', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const clubId = Number(req.params.id);
+  const { week_start } = req.body || {};
+  if (!week_start) return res.status(400).json({ error: 'week_start required' });
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
+  await audit(user, 'schedule_published', clubId, null, {
+    week_start,
+    club_name: clubRows[0] ? clubRows[0].name : '',
+    message: 'Approved by owner',
+  });
+  res.json({ ok: true });
+}));
+
+// Owner approves a single cell (clears amber for just that shift).
+app.post('/api/schedules/:id/approve-cell', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const scheduleId = Number(req.params.id);
+  const { employee_id, day_index } = req.body || {};
+  if (employee_id == null || day_index == null) return res.status(400).json({ error: 'employee_id and day_index required' });
+  const { rows: schedRows } = await pool.query(
+    'SELECT club_id, week_start FROM schedules WHERE id = $1', [scheduleId]);
+  if (!schedRows[0]) return res.status(404).json({ error: 'schedule not found' });
+  const sched = schedRows[0];
+  const weekStart = sched.week_start instanceof Date
+    ? sched.week_start.toISOString().slice(0, 10) : sched.week_start;
+  await audit(user, 'cell_approved', sched.club_id, null, {
+    employee_id, day_index, week_start: weekStart,
+  });
+  res.json({ ok: true });
+}));
+
+// ---------- Slack connection (kept for future use) ----------
+const _env = (k) => process.env[k] || '';
+const SLACK_BOT_TOKEN = _env('SLACK_TOKEN');
+const SLACK_CHANNEL_ID = _env('SLACK_CHANNEL');
 
 // ---------- clubs ----------
 app.get('/api/clubs', ah(async (req, res) => {
@@ -481,7 +649,7 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
        FROM audit_log
       WHERE club_id = $1
         AND (
-          (action IN ('cell_edit','notes_edit','total_edit','schedule_published')
+          (action IN ('cell_edit','notes_edit','total_edit','schedule_published','schedule_submitted')
             AND details->>'week_start' = $2)
           OR (action IN ('employee_add','employee_update','employee_archive')
             AND created_at > NOW() - INTERVAL '7 days')
@@ -498,6 +666,79 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
   }));
   const lastUpdate = recentUpdates[0] || null;
 
+  // Review status — 4 states:
+  //   draft          = no submissions or approvals yet
+  //   submitted      = manager sent for review, owner hasn't approved
+  //   changes_pending = owner approved but new edits since
+  //   approved       = owner approved and no edits since
+  const { rows: approveRows } = await pool.query(
+    `SELECT created_at FROM audit_log
+      WHERE club_id = $1 AND action = 'schedule_published'
+        AND details->>'week_start' = $2
+      ORDER BY created_at DESC LIMIT 1`,
+    [clubId, weekStart]
+  );
+  const { rows: submitRows } = await pool.query(
+    `SELECT created_at FROM audit_log
+      WHERE club_id = $1 AND action = 'schedule_submitted'
+        AND details->>'week_start' = $2
+      ORDER BY created_at DESC LIMIT 1`,
+    [clubId, weekStart]
+  );
+  const lastPublishedAt = approveRows[0] ? approveRows[0].created_at : null;
+  const lastSubmittedAt = submitRows[0] ? submitRows[0].created_at : null;
+  const updatedAt = new Date(schedule.updated_at);
+  let reviewStatus = 'draft';
+  if (lastPublishedAt && updatedAt <= new Date(lastPublishedAt)) {
+    reviewStatus = 'approved';
+  } else if (lastPublishedAt && updatedAt > new Date(lastPublishedAt)) {
+    reviewStatus = 'changes_pending';
+  } else if (lastSubmittedAt) {
+    reviewStatus = 'submitted';
+  }
+
+  // Cells edited since the last send-for-review — powers the amber
+  // highlighting that persists after Save Draft until the schedule is
+  // reviewed. Returns arrays of {employee_id, day_index} and
+  // {location, day_index} so the frontend can mark those cells.
+  const sinceDate = lastPublishedAt || '1970-01-01';
+  // Return pending cells with old_value so the frontend can show
+  // strikethrough when a shift was removed (old had text, new is empty).
+  const { rows: pendingCells } = await pool.query(
+    `SELECT DISTINCT ON (
+       (a.details->>'employee_id')::int,
+       (a.details->>'day_index')::int
+     )
+       (a.details->>'employee_id')::int AS employee_id,
+       (a.details->>'day_index')::int   AS day_index,
+       a.details->>'old_value'          AS old_value,
+       a.details->>'new_value'          AS new_value
+     FROM audit_log a
+     WHERE a.club_id = $1 AND a.action = 'cell_edit'
+       AND a.details->>'week_start' = $2
+       AND a.created_at > $3
+       AND NOT EXISTS (
+         SELECT 1 FROM audit_log b
+         WHERE b.club_id = $1 AND b.action = 'cell_approved'
+           AND b.details->>'week_start' = $2
+           AND (b.details->>'employee_id')::int = (a.details->>'employee_id')::int
+           AND (b.details->>'day_index')::int = (a.details->>'day_index')::int
+           AND b.created_at > a.created_at
+       )
+     ORDER BY (a.details->>'employee_id')::int, (a.details->>'day_index')::int, a.created_at DESC`,
+    [clubId, weekStart, sinceDate]
+  );
+  const { rows: pendingTotals } = await pool.query(
+    `SELECT DISTINCT
+       details->>'location'           AS location,
+       (details->>'day_index')::int   AS day_index
+     FROM audit_log
+     WHERE club_id = $1 AND action = 'total_edit'
+       AND details->>'week_start' = $2
+       AND created_at > $3`,
+    [clubId, weekStart, sinceDate]
+  );
+
   res.json({
     schedule: {
       id: schedule.id,
@@ -512,6 +753,9 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     shifts: shiftMap,
     locations: locationsForClubName(clubRow[0] ? clubRow[0].name : ''),
     totals: totalsMap,
+    review_status: reviewStatus,
+    pending_cells: pendingCells,
+    pending_totals: pendingTotals,
     last_update: lastUpdate,
     recent_updates: recentUpdates,
   });
@@ -617,13 +861,233 @@ app.patch('/api/schedules/:id/notes', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Clear all shifts and location totals for a schedule (manager+)
+app.post('/api/schedules/:id/clear', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const scheduleId = Number(req.params.id);
+  const { rows: schedRows } = await pool.query('SELECT * FROM schedules WHERE id = $1', [scheduleId]);
+  const sched = schedRows[0];
+  if (!sched) return res.status(404).json({ error: 'schedule not found' });
+  if (!canEditClub(user, sched.club_id)) {
+    return res.status(403).json({ error: 'you do not manage this club' });
+  }
+  const weekStart = sched.week_start instanceof Date
+    ? sched.week_start.toISOString().slice(0, 10) : sched.week_start;
+  await pool.query('DELETE FROM shifts WHERE schedule_id = $1', [scheduleId]);
+  await pool.query('DELETE FROM location_totals WHERE schedule_id = $1', [scheduleId]);
+  await pool.query('UPDATE schedules SET notes = \'\', updated_at = NOW() WHERE id = $1', [scheduleId]);
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [sched.club_id]);
+  await audit(user, 'schedule_cleared', sched.club_id, null, {
+    week_start: weekStart,
+    club_name: clubRows[0] ? clubRows[0].name : '',
+  });
+  res.json({ ok: true });
+}));
+
 // ---------- health ----------
+// ---------- export / backup ----------
+// Full JSON backup of all data (owner-only)
+app.get('/api/export/backup', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
+  const { rows: employees } = await pool.query('SELECT id, club_id, name, team, archived, sort_order FROM employees ORDER BY club_id, sort_order');
+  const { rows: schedules } = await pool.query('SELECT id, club_id, week_start, status, notes, updated_at FROM schedules ORDER BY week_start DESC');
+  const { rows: shifts } = await pool.query('SELECT schedule_id, employee_id, day_index, shift_text FROM shifts');
+  const { rows: totals } = await pool.query('SELECT schedule_id, location, day_index, count_text FROM location_totals');
+  const { rows: users } = await pool.query('SELECT id, email, role, club_id, team, name FROM users ORDER BY role, email');
+  res.setHeader('Content-Disposition', `attachment; filename="fbc-schedule-backup-${new Date().toISOString().slice(0,10)}.json"`);
+  res.json({ exported_at: new Date().toISOString(), clubs, employees, schedules, shifts, totals, users });
+}));
+
+// PDF export of both clubs' schedules for a given week — one page
+const PDFDocument = require('pdfkit');
+app.get('/api/export/pdf', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const weekStart = req.query.week;
+  if (!weekStart) return res.status(400).json({ error: 'week required' });
+
+  const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const dayHeaders = days.map((d, i) => {
+    const dt = new Date(weekStart + 'T00:00:00'); dt.setDate(dt.getDate() + i);
+    return `${d} ${dt.getMonth()+1}/${dt.getDate()}`;
+  });
+
+  const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 20 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="FBC-Schedule-${weekStart}.pdf"`);
+  doc.pipe(res);
+
+  // Title at top
+  doc.fontSize(14).font('Helvetica-Bold').fillColor('#0a1628')
+    .text('Freedom Boat Club NEFL — Schedule', { align: 'center' });
+  doc.fontSize(9).font('Helvetica').fillColor('#3a4a60')
+    .text(`Week of ${weekStart}`, { align: 'center' });
+  doc.moveDown(0.4);
+
+  const startX = 20;
+  const tableW = doc.page.width - 40;
+  const nameColW = 115;
+  const dayColW = Math.floor((tableW - nameColW) / 7);
+  let y = doc.y;
+
+  for (let ci = 0; ci < clubs.length; ci++) {
+    const club = clubs[ci];
+
+    const { rows: emps } = await pool.query(
+      'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [club.id]);
+    const { rows: schedRows } = await pool.query(
+      'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [club.id, weekStart]);
+    const scheduleId = schedRows[0] ? schedRows[0].id : null;
+    let shiftMap = {};
+    if (scheduleId) {
+      const { rows: shifts } = await pool.query(
+        'SELECT employee_id, day_index, shift_text FROM shifts WHERE schedule_id = $1', [scheduleId]);
+      for (const s of shifts) {
+        shiftMap[s.employee_id] = shiftMap[s.employee_id] || {};
+        shiftMap[s.employee_id][s.day_index] = s.shift_text;
+      }
+    }
+
+    // Club name bar — solid black background
+    if (y > doc.page.height - 60) { doc.addPage(); y = 20; }
+    doc.rect(startX, y, tableW, 18).fill('#000000');
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff')
+      .text(club.name.toUpperCase(), startX + 6, y + 4, { width: tableW - 12 });
+    y += 18;
+
+    // Column headers — dark blue, larger text
+    const headerH = 16;
+    doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
+    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('EMPLOYEE', startX + 4, y + 4, { width: nameColW - 8 });
+    for (let d = 0; d < 7; d++) {
+      const x = startX + nameColW + d * dayColW;
+      doc.rect(x, y, dayColW, headerH).fill('#1a3a6e');
+      doc.fillColor('#ffffff').fontSize(7).text(dayHeaders[d], x + 2, y + 4, { width: dayColW - 4, align: 'center' });
+    }
+    // Grid lines on header
+    doc.lineWidth(0.75).strokeColor('#333333');
+    doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
+    doc.moveTo(startX, y).lineTo(startX, y + headerH).stroke();
+    doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + headerH).stroke();
+    for (let d = 1; d <= 7; d++) {
+      doc.moveTo(startX + nameColW + d * dayColW, y).lineTo(startX + nameColW + d * dayColW, y + headerH).stroke();
+    }
+    y += headerH;
+
+    // Group by team
+    const groups = new Map();
+    for (const e of emps) {
+      const key = e.team || '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    const order = ['Julington Creek', 'Jacksonville Beach'];
+    const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+      const ai = order.indexOf(a); const bi = order.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+
+    let rowIdx = 0;
+    for (const teamName of sortedKeys) {
+      // Team divider
+      if (sortedKeys.length > 1 && teamName) {
+        if (y > doc.page.height - 30) { doc.addPage(); y = 20; }
+        doc.rect(startX, y, tableW, 12).fill('#d0d8e8').stroke('#9aa8c0');
+        doc.fontSize(6).font('Helvetica-Bold').fillColor('#2a3a55')
+          .text(teamName.toUpperCase(), startX + 4, y + 2);
+        y += 12;
+      }
+
+      for (const emp of groups.get(teamName)) {
+        if (y > doc.page.height - 25) { doc.addPage(); y = 20; }
+        const rowH = 13;
+        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#eef2f9';
+
+        // Fill entire row background first
+        doc.rect(startX, y, tableW, rowH).fill(rowBg);
+
+        // Name cell — darker background to stand out
+        doc.rect(startX, y, nameColW, rowH).fill(rowIdx % 2 === 0 ? '#dce4f0' : '#c8d4e6');
+        doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000')
+          .text(emp.name, startX + 4, y + 3, { width: nameColW - 8 });
+
+        // Day cells text
+        for (let d = 0; d < 7; d++) {
+          const x = startX + nameColW + d * dayColW;
+          const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
+          if (val) {
+            const lower = val.toLowerCase();
+            if (lower.includes('req off')) doc.fillColor('#aa0000');
+            else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#0033aa');
+            else doc.fillColor('#000000');
+            doc.fontSize(6.5).font('Helvetica-Bold').text(val, x + 2, y + 3, { width: dayColW - 4, align: 'center' });
+          }
+        }
+
+        // Draw grid lines ON TOP — thick dark lines
+        doc.lineWidth(0.75).strokeColor('#333333');
+        // Horizontal line at bottom of row
+        doc.moveTo(startX, y + rowH).lineTo(startX + tableW, y + rowH).stroke();
+        // Vertical lines for each column
+        doc.moveTo(startX, y).lineTo(startX, y + rowH).stroke();
+        doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + rowH).stroke();
+        for (let d = 1; d <= 7; d++) {
+          const x = startX + nameColW + d * dayColW;
+          doc.moveTo(x, y).lineTo(x, y + rowH).stroke();
+        }
+
+        y += rowH;
+        rowIdx++;
+      }
+    }
+
+    y += 8; // gap between clubs
+  }
+
+  doc.end();
+}));
+
 app.get('/api/health', ah(async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT NOW() AS now');
     res.json({ ok: true, db: true, time: rows[0].now });
   } catch (e) {
     res.status(500).json({ ok: false, db: false, error: e.message });
+  }
+}));
+
+// Diagnostic: send a test email immediately (no 60s wait). Visit this URL
+// in your browser while signed in as owner to verify SMTP is working.
+app.get('/api/test-email', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  if (!EMAIL_ENABLED) {
+    return res.json({
+      ok: false,
+      error: 'Email not enabled',
+      detail: {
+        SMTP_USER: SMTP_USER ? '(set)' : '(missing)',
+        SMTP_PASS: SMTP_PASS ? '(set)' : '(missing)',
+        NOTIFY_EMAILS: NOTIFY_EMAILS.length ? NOTIFY_EMAILS : '(empty)',
+        EMAIL_FROM: EMAIL_FROM || '(missing)',
+      },
+    });
+  }
+  try {
+    const info = await smtpTransport.sendMail({
+      from: EMAIL_FROM,
+      to: NOTIFY_EMAILS.join(', '),
+      subject: 'FBC Schedule — Test Email',
+      html: '<h2>Test email from FBC Schedule Dashboard</h2><p>If you see this, email notifications are working.</p><p><a href="https://schedule.fbcnefl.com">Open Dashboard</a></p>',
+    });
+    res.json({ ok: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected });
+  } catch (e) {
+    res.json({ ok: false, error: e.message, code: e.code || null });
   }
 }));
 

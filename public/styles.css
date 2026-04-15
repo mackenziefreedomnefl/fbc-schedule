@@ -1,13 +1,13 @@
-/* Dark theme */
+/* Light blue theme */
 :root {
-  --bg: #0f1216;
-  --panel: #161b22;
-  --panel-2: #1c2230;
-  --border: #4a5468;
-  --text: #e6e8ee;
-  --muted: #8b94a7;
-  --accent: #4c8bf5;
-  --accent-2: #3567c7;
+  --bg: #e8f0fe;
+  --panel: #ffffff;
+  --panel-2: #f0f4fa;
+  --border: #c4d0e0;
+  --text: #1a2233;
+  --muted: #5a6a80;
+  --accent: #2563eb;
+  --accent-2: #1d4ed8;
   --danger: #e5484d;
   --ok: #22c55e;
   --warn: #f59e0b;
@@ -41,6 +41,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { background: var(--accent-2); }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.ghost { background: transparent; }
+button.ghost.danger { background: transparent; color: var(--danger); border-color: transparent; }
+button.ghost.danger:hover { background: var(--danger); color: #fff; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 input, select, textarea {
@@ -74,7 +76,17 @@ label input, label select, label textarea { margin-top: 4px; }
 .tabs { display: flex; gap: 6px; margin-left: 16px; }
 .tabs button { background: transparent; border-color: transparent; color: var(--muted); }
 .tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
-.user-chip { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+/* Topbar controls */
+.topbar-btn { font-size: 12px; padding: 5px 10px; }
+.topbar-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.topbar-filter { width: 160px; font-size: 13px; }
+.topbar-label { white-space: nowrap; }
+
+.user-chip { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 
@@ -91,6 +103,78 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   align-items: flex-start;
   gap: 10px;
 }
+/* Draft toolbar: Save Draft + Undo + Redo */
+.draft-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  position: sticky;
+  top: 56px;
+  z-index: 9;
+}
+.draft-count { font-size: 13px; }
+.draft-toolbar .spacer { flex: 1; }
+.draft-toolbar button { font-size: 13px; }
+.btn-review-ready, .btn-approve-ready {
+  background: var(--ok) !important;
+  border-color: var(--ok) !important;
+  color: #fff !important;
+  animation: pulse-ready 1.5s ease-in-out 2;
+}
+.btn-review-resend {
+  background: #f59e0b !important;
+  border-color: #f59e0b !important;
+  color: #fff !important;
+  animation: pulse-ready 1.5s ease-in-out 2;
+}
+@keyframes pulse-ready {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.cell-dirty {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-left: 2px solid var(--warn) !important;
+}
+/* Strikethrough showing what was removed — visible to signed-in users only */
+.cell-removed {
+  text-decoration: line-through;
+  color: var(--danger);
+  font-size: 11px;
+  opacity: 0.7;
+  padding: 0 8px 2px;
+  pointer-events: none;
+}
+
+.day-cell { position: relative; }
+.cell-approve-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 50%;
+  background: var(--ok);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.day-cell:hover .cell-approve-btn {
+  opacity: 0.85;
+  pointer-events: auto;
+}
+.cell-approve-btn:hover { opacity: 1; }
+
 .shift-notice-text { flex: 1; white-space: pre-wrap; }
 .shift-notice-edit { font-size: 12px; padding: 4px 10px; flex-shrink: 0; }
 
@@ -146,12 +230,101 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 /* Current/Next Work Week heading repeated above each club */
+/* Review status badges */
+.review-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--border);
+}
+.review-badge.draft {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(245, 158, 11, 0.10);
+}
+.review-badge.pending {
+  color: #f97316;
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.10);
+}
+.review-badge.sent {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(34, 197, 94, 0.10);
+}
+
+/* Location picker for anonymous staff */
+.location-picker {
+  text-align: center;
+  padding: 60px 20px;
+}
+.location-picker h2 { font-size: 24px; margin-bottom: 24px; }
+.location-picker-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.location-picker-btn {
+  font-size: 18px !important;
+  padding: 16px 40px !important;
+  border-radius: 10px !important;
+}
+.location-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* Admin club picker */
+.admin-club-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.admin-club-picker button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Inline week tabs inside the heading */
+.week-tab-inline {
+  font-size: 13px;
+  padding: 4px 12px;
+  margin-left: 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.week-tab-inline:hover { color: var(--text); border-color: var(--accent); }
+.week-tab-inline.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .club-week-heading {
   font-size: 18px;
   font-weight: 700;
   margin: 18px 0 8px;
   text-align: center;
   color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .last-update {
@@ -510,9 +683,9 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     background: var(--panel);
     z-index: 2;
   }
-  .schedule-table tr.row-team-main td.name-cell { background: #151c2a; }
-  .schedule-table tr.row-team-2 td.name-cell   { background: #1c1829; }
-  .schedule-table tr.row-team-shared td.name-cell { background: #142319; }
+  .schedule-table tr.row-team-main td.name-cell { background: #dce8f8; }
+  .schedule-table tr.row-team-2 td.name-cell   { background: #e8ddf5; }
+  .schedule-table tr.row-team-shared td.name-cell { background: #d5f0df; }
   .schedule-table td.day-cell { min-width: 88px; }
   .schedule-table td.day-cell input {
     padding: 6px 8px;

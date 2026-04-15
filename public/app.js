@@ -32,14 +32,20 @@
   };
 
   const state = {
-    me: { id: null },                     // current user (or { id: null })
-    clubs: [],                            // [{ id, name }]
-    tab: 'current',                       // one of WEEK_KEYS (signed-in only)
-    weekStart: null,                      // YYYY-MM-DD derived from tab
-    // Loaded schedules keyed by week then club. For signed-in users only the
-    // active tab's week is filled; for anonymous staff all configured weeks
-    // are loaded so every week can be rendered stacked.
+    me: { id: null },
+    clubs: [],
+    tab: 'current',
+    weekStart: null,
     weekData: { current: {}, next: {}, week3: {} },
+    staffClubId: null,  // anonymous staff: which club they selected to view
+    adminClubId: null,  // owner: which club to view (null = all)
+    // Draft / undo-redo state. pendingChanges is a Map keyed by
+    // "scheduleId:empId:dayIndex" (or "T:scheduleId:loc:dayIndex" for totals).
+    // Each value = { schedule_id, employee_id|null, location|null, day_index,
+    //               shift_text, server_value }
+    pendingChanges: new Map(),
+    undoStack: [],   // [ { key, old_value, new_value, server_value, ...ids } ]
+    redoStack: [],
   };
 
   // -------- dom helpers --------
@@ -50,6 +56,7 @@
       if (k === 'class') n.className = v;
       else if (k === 'html') n.innerHTML = v;
       else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
+      else if (v === false) n.removeAttribute(k); // boolean false = don't set
       else if (v !== undefined && v !== null) n.setAttribute(k, v);
     }
     for (const c of [].concat(children)) {
@@ -152,13 +159,200 @@
   }
 
   // -------- permission helpers --------
-  function isOwner() { return state.me && (state.me.role === 'owner' || state.me.role === 'admin'); }
-  function isLoggedIn() { return state.me && state.me.id != null; }
+  const _viewParam = new URLSearchParams(window.location.search).get('view');
+  const STAFF_VIEW_MODE = _viewParam === 'staff';
+  const MANAGER_VIEW_MODE = _viewParam === 'manager';
+  function isLoggedIn() {
+    if (STAFF_VIEW_MODE) return false;
+    return state.me && state.me.id != null;
+  }
+  function isOwner() {
+    if (MANAGER_VIEW_MODE) return false; // force manager view
+    return state.me && (state.me.role === 'owner' || state.me.role === 'admin');
+  }
   // Any signed-in user (owner or manager) can edit every club and every
   // team. Per-location restrictions were removed on request.
   function canEditEmployee(/* employee */) { return isLoggedIn(); }
   function canEditTeam(/* clubId, team */) { return isLoggedIn(); }
   function canEditClub(/* clubId */) { return isLoggedIn(); }
+
+  // -------- draft / undo / redo --------
+  function cellKey(scheduleId, empId, dayIndex) {
+    return `${scheduleId}:${empId}:${dayIndex}`;
+  }
+  function totalKey(scheduleId, loc, dayIndex) {
+    return `T:${scheduleId}:${loc}:${dayIndex}`;
+  }
+
+  // ids must include club_id so undo/redo/save scope per-club
+  function recordEdit(key, ids, oldVal, newVal, serverVal) {
+    state.undoStack.push({ key, ...ids, old_value: oldVal, new_value: newVal, server_value: serverVal });
+    state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== Number(ids.club_id));
+    if (newVal === serverVal) {
+      state.pendingChanges.delete(key);
+    } else {
+      state.pendingChanges.set(key, { ...ids, shift_text: newVal, server_value: serverVal });
+    }
+    updateDraftToolbar();
+  }
+
+  function applyUndoRedo(entry, valueToSet) {
+    const inp = document.querySelector(`[data-cell-key="${entry.key}"]`);
+    if (inp) {
+      inp.value = valueToSet;
+      inp.style.color = cellColorFor(valueToSet);
+    }
+    if (valueToSet === entry.server_value) {
+      state.pendingChanges.delete(entry.key);
+    } else {
+      state.pendingChanges.set(entry.key, {
+        schedule_id: entry.schedule_id,
+        employee_id: entry.employee_id || null,
+        location: entry.location || null,
+        day_index: entry.day_index,
+        club_id: entry.club_id,
+        shift_text: valueToSet,
+        server_value: entry.server_value,
+      });
+    }
+    updateDraftToolbar();
+  }
+
+  function undoForClub(clubId) {
+    const cid = Number(clubId);
+    for (let i = state.undoStack.length - 1; i >= 0; i--) {
+      if (Number(state.undoStack[i].club_id) === cid) {
+        const entry = state.undoStack.splice(i, 1)[0];
+        state.redoStack.push(entry);
+        applyUndoRedo(entry, entry.old_value);
+        return;
+      }
+    }
+  }
+
+  function redoForClub(clubId) {
+    const cid = Number(clubId);
+    for (let i = state.redoStack.length - 1; i >= 0; i--) {
+      if (Number(state.redoStack[i].club_id) === cid) {
+        const entry = state.redoStack.splice(i, 1)[0];
+        state.undoStack.push(entry);
+        applyUndoRedo(entry, entry.new_value);
+        return;
+      }
+    }
+  }
+
+  function countForClub(clubId) {
+    const cid = Number(clubId);
+    let n = 0;
+    state.pendingChanges.forEach(v => { if (Number(v.club_id) === cid) n++; });
+    return n;
+  }
+  function undoCountForClub(clubId) {
+    const cid = Number(clubId);
+    return state.undoStack.filter(e => Number(e.club_id) === cid).length;
+  }
+  function redoCountForClub(clubId) {
+    const cid = Number(clubId);
+    return state.redoStack.filter(e => Number(e.club_id) === cid).length;
+  }
+
+  async function saveDraftForClub(clubId) {
+    const cid = Number(clubId);
+    const changes = [];
+    state.pendingChanges.forEach((v, k) => {
+      if (Number(v.club_id) === cid) changes.push({ key: k, ...v });
+    });
+    if (!changes.length) {
+      // Debug: show what's in the pending map
+      const total = state.pendingChanges.size;
+      if (total) {
+        const clubIds = new Set();
+        state.pendingChanges.forEach(v => clubIds.add(v.club_id));
+        toast(`No changes for club ${cid}. ${total} total pending for clubs: ${[...clubIds].join(', ')}`, 'err');
+      }
+      return;
+    }
+    changes.forEach(c => state.pendingChanges.delete(c.key));
+    state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== cid);
+    state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== cid);
+
+    let ok = 0;
+    let failed = 0;
+    for (const c of changes) {
+      try {
+        if (c.location) {
+          await api(`/api/schedules/${c.schedule_id}/total`, {
+            method: 'PATCH',
+            body: { location: c.location, day_index: c.day_index, count_text: c.shift_text },
+          });
+        } else {
+          await api(`/api/schedules/${c.schedule_id}/cell`, {
+            method: 'PATCH',
+            body: { employee_id: c.employee_id, day_index: c.day_index, shift_text: c.shift_text },
+          });
+        }
+        ok++;
+      } catch (err) {
+        failed++;
+        toast(err.message, 'err');
+      }
+    }
+    if (ok) {
+      toast(`Saved ${ok} change${ok === 1 ? '' : 's'}`);
+      if (!isOwner()) {
+        // Remind managers to send for review after saving
+        setTimeout(() => toast('Don\'t forget to Send for Review when you\'re done'), 1500);
+      }
+    }
+    if (failed) toast(`${failed} change${failed === 1 ? '' : 's'} failed`, 'err');
+    updateDraftToolbar();
+    // Reload data so server state matches what we just saved
+    await loadAllSchedules();
+    renderBody();
+  }
+
+  function updateDraftToolbar() {
+    document.querySelectorAll('.draft-toolbar').forEach(bar => {
+      const clubId = Number(bar.getAttribute('data-club-id'));
+      const count = countForClub(clubId);
+      const badge = bar.querySelector('.review-badge');
+      const saveBtn = bar.querySelector('.draft-save');
+      const undoBtn = bar.querySelector('.draft-undo');
+      const redoBtn = bar.querySelector('.draft-redo');
+      if (badge && count) {
+        badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
+        badge.className = 'review-badge draft';
+      }
+      if (saveBtn) saveBtn.disabled = !count;
+      if (undoBtn) undoBtn.disabled = !undoCountForClub(clubId);
+      if (redoBtn) redoBtn.disabled = !redoCountForClub(clubId);
+    });
+  }
+
+  // Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Shift+Z / Ctrl+Y = redo, Ctrl+S = save
+  document.addEventListener('keydown', (e) => {
+    if (!isLoggedIn()) return;
+    const mod = e.ctrlKey || e.metaKey;
+    // Find the club_id of the focused cell (if any) for per-club undo/redo
+    const focusedBar = document.activeElement?.closest('.club-section')?.querySelector('.draft-toolbar');
+    const focusedClubId = focusedBar ? Number(focusedBar.getAttribute('data-club-id')) : null;
+    // Fall back to the first visible club
+    const firstBar = document.querySelector('.draft-toolbar');
+    const clubId = focusedClubId || (firstBar ? Number(firstBar.getAttribute('data-club-id')) : null);
+    if (!clubId) return;
+    if (mod && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoForClub(clubId); }
+    else if (mod && (e.key === 'Z' || e.key === 'y')) { e.preventDefault(); redoForClub(clubId); }
+    else if (mod && e.key === 's') { e.preventDefault(); saveDraftForClub(clubId); }
+  });
+
+  // Warn if leaving the page with unsaved changes
+  window.addEventListener('beforeunload', (e) => {
+    if (state.pendingChanges.size) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   // -------- modal --------
   function openModal(content, opts = {}) {
@@ -223,13 +417,13 @@
     if (!body) return;
     const banner = el('div', { class: 'publish-banner' });
     banner.appendChild(el('div', { class: 'publish-banner-title' },
-      `${unseen.length} new published schedule${unseen.length === 1 ? '' : 's'}`));
+      `${unseen.length} schedule${unseen.length === 1 ? '' : 's'} sent for review`));
     const list = el('div', { class: 'publish-banner-list' });
     unseen.slice(0, 5).forEach(e => {
       const d = e.details || {};
       const team = d.team ? ` (${d.team})` : '';
       const msg = d.message ? ` — "${d.message}"` : '';
-      const line = `${fmtRelative(e.created_at)} — ${e.user_label} published ${e.club_name || ''}${team} for week of ${d.week_start}${msg}`;
+      const line = `${fmtRelative(e.created_at)} — ${e.user_label} sent ${e.club_name || ''}${team} for review — week of ${d.week_start}${msg}`;
       list.appendChild(el('div', {}, line));
     });
     banner.appendChild(list);
@@ -278,14 +472,65 @@
     chip.innerHTML = '';
     if (isLoggedIn()) {
       const label = state.me.name || state.me.email;
-      const role = isOwner() ? 'Owner' : `Manager · ${state.me.team || '—'}`;
-      chip.appendChild(el('span', { class: 'muted' }, `${label} · ${role}`));
+      const role = isOwner() ? 'Owner' : 'Manager';
+      chip.appendChild(el('span', { class: 'muted topbar-label' }, `${label} · ${role}`));
+
+      // Club picker (owners only)
       if (isOwner()) {
-        chip.appendChild(el('button', { class: 'ghost', onclick: openAdminPanel }, 'Admin'));
+        chip.appendChild(el('span', { class: 'muted' }, 'Viewing:'));
+        chip.appendChild(el('button', {
+          class: 'ghost topbar-btn' + (!state.adminClubId ? ' active' : ''),
+          onclick: () => { state.adminClubId = null; renderBody(); },
+        }, 'All'));
+        state.clubs.forEach(c => {
+          chip.appendChild(el('button', {
+            class: 'ghost topbar-btn' + (state.adminClubId === c.id ? ' active' : ''),
+            onclick: () => { state.adminClubId = c.id; renderBody(); },
+          }, c.name));
+        });
       }
-      chip.appendChild(el('button', { class: 'ghost', onclick: openChangePasswordModal }, 'Change password'));
+
+      // Staff Search
+      const filterInput = el('input', {
+        type: 'search',
+        class: 'name-filter topbar-filter',
+        placeholder: 'Staff Search',
+        autocomplete: 'off',
+      });
+      filterInput.value = state.filter || '';
+      filterInput.addEventListener('input', () => {
+        state.filter = filterInput.value;
+        document.querySelectorAll('.name-filter').forEach(other => {
+          if (other !== filterInput) other.value = state.filter;
+        });
+        applyNameFilter();
+      });
+      chip.appendChild(filterInput);
+
+      // View Live Schedule
+      chip.appendChild(el('a', {
+        href: '?view=staff',
+        target: '_blank',
+        class: 'ghost topbar-btn',
+        style: 'text-decoration:none;',
+      }, 'Live Schedule'));
+
+      // View as Manager (owners only)
+      if (isOwner()) {
+        chip.appendChild(el('a', {
+          href: '?view=manager',
+          target: '_blank',
+          class: 'ghost topbar-btn',
+          style: 'text-decoration:none;',
+        }, 'View as Manager'));
+      }
+
+      if (isOwner()) {
+        chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openAdminPanel }, 'Admin'));
+      }
+      chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openChangePasswordModal }, 'Account'));
       chip.appendChild(el('button', {
-        class: 'ghost',
+        class: 'ghost topbar-btn',
         onclick: async () => {
           try { await api('/api/logout', { method: 'POST' }); } catch (_) {}
           state.me = { id: null };
@@ -302,7 +547,8 @@
     // Anonymous staff see every configured week stacked, so we fetch all of
     // them. Signed-in managers/owners use tabs so we only fetch the active
     // week to keep the request count down.
-    const weeksToLoad = isLoggedIn() ? [state.tab] : WEEK_KEYS.slice();
+    // Staff see current + next only; managers/owners load only the active tab
+    const weeksToLoad = isLoggedIn() ? [state.tab] : ['current', 'next'];
     const empty = {};
     WEEK_KEYS.forEach(k => { empty[k] = {}; });
     state.weekData = empty;
@@ -326,35 +572,90 @@
       return;
     }
 
-    // Static notice that applies to every schedule
-    const notice = el('div', { class: 'shift-notice' });
-    notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
-    if (isOwner()) {
-      notice.appendChild(el('button', {
-        class: 'ghost shift-notice-edit',
-        onclick: openNoticeModal,
-      }, 'Edit'));
+    // Static notice — only for anonymous staff and owners (managers skip it)
+    if (!isLoggedIn() || isOwner()) {
+      const notice = el('div', { class: 'shift-notice' });
+      notice.appendChild(el('div', { class: 'shift-notice-text' }, NOTICE_TEXT));
+      if (isOwner()) {
+        notice.appendChild(el('button', {
+          class: 'ghost shift-notice-edit',
+          onclick: openNoticeModal,
+        }, 'Edit'));
+      }
+      body.appendChild(notice);
     }
-    body.appendChild(notice);
 
     if (isLoggedIn()) {
-      // Manager / owner view: tabs flip the whole page between current
-      // and next week, one week visible at a time.
-      body.appendChild(buildWeekTabs());
-      state.clubs.forEach((club, idx) => {
-        // Only the first club in the week group shows the week heading,
-        // so Jacksonville gets "Current/Next Work Week" and St. Augustine
-        // sits right below it without a duplicate label.
+      // Club picker + staff search + manage roster + live schedule all
+      // moved to the topbar. Just render the schedule sections here.
+      let visibleClubs;
+      if (!isOwner() && state.me.club_id) {
+        visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.me.club_id));
+      } else if (isOwner() && state.adminClubId) {
+        visibleClubs = state.clubs.filter(c => Number(c.id) === Number(state.adminClubId));
+      } else {
+        visibleClubs = state.clubs;
+      }
+
+      visibleClubs.forEach((club, idx) => {
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
       });
     } else {
-      // Anonymous staff view: no tabs. Every week stacked in order — this
-      // week's clubs first, then next week's, then week after next's.
-      WEEK_KEYS.forEach(weekKey => {
-        state.clubs.forEach((club, idx) => {
-          body.appendChild(renderClubSection(club, weekKey, idx === 0));
+      // Anonymous staff view: pick a location first, then show that club only.
+      if (!state.staffClubId) {
+        // Location picker
+        const picker = el('div', { class: 'location-picker' });
+        picker.appendChild(el('h2', {}, 'Select your location'));
+        const btnWrap = el('div', { class: 'location-picker-buttons' });
+        state.clubs.forEach(c => {
+          btnWrap.appendChild(el('button', {
+            class: 'primary location-picker-btn',
+            onclick: async () => {
+              state.staffClubId = c.id;
+              await loadAllSchedules();
+              renderBody();
+            },
+          }, c.name));
         });
-      });
+        picker.appendChild(btnWrap);
+        body.appendChild(picker);
+        return;
+      }
+
+      // Show selected club only, with a switch button
+      const selectedClub = state.clubs.find(c => c.id === state.staffClubId);
+      if (selectedClub) {
+        const switchBar = el('div', { class: 'location-switch' });
+        switchBar.appendChild(el('span', { class: 'muted' }, `Viewing: ${selectedClub.name}`));
+        switchBar.appendChild(el('button', {
+          class: 'ghost',
+          onclick: () => { state.staffClubId = null; renderBody(); },
+        }, 'Switch location'));
+        body.appendChild(switchBar);
+
+        // Club header + staff search shown ONCE
+        body.appendChild(renderStaffHeader(selectedClub));
+
+        // Staff only see current + next week (not week after next)
+        const STAFF_WEEKS = ['current', 'next'];
+        STAFF_WEEKS.forEach(weekKey => {
+          const data = (state.weekData[weekKey] || {})[selectedClub.id];
+          if (!data) return;
+          const section = el('div', { class: 'staff-week-section' });
+          const heading = el('div', { class: 'club-week-heading' });
+          heading.appendChild(el('span', {}, WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+          if (data.recent_updates && data.recent_updates.length) {
+            heading.appendChild(el('button', {
+              class: 'ghost',
+              style: 'font-size:12px;',
+              onclick: () => openWeekActivityModal(selectedClub, data),
+            }, 'View Recent Changes'));
+          }
+          section.appendChild(heading);
+          section.appendChild(buildScheduleGrid(selectedClub, data));
+          body.appendChild(section);
+        });
+      }
     }
 
     // Apply any existing filter after new rows are rendered
@@ -403,49 +704,16 @@
     const data = (state.weekData[weekKey] || {})[club.id];
     const wrap = el('section', { class: 'club-section' });
 
-    // Show the Current/Next Work Week label only above the first club in
-    // a week group (Jacksonville). St. Augustine sits right below without a
-    // duplicate heading.
-    if (showWeekHeading) {
-      wrap.appendChild(el('div', { class: 'club-week-heading' },
-        WEEK_HEADINGS[weekKey] || 'Current Work Week'));
-    }
-
     const header = el('div', { class: 'club-header' });
     header.appendChild(el('h2', {}, club.name));
-    if (canEditClub(club.id) || (isLoggedIn() && state.me.club_id === club.id)) {
-      header.appendChild(el('span', { class: 'edit-chip' },
-        isOwner() ? 'Owner edit' : `Editing ${state.me.team || ''}`.trim()));
-    }
 
-    // Per-club Staff Search input. Both clubs share the same state.filter,
-    // so typing in either box filters every employee across both clubs.
-    const filterWrap = el('div', { class: 'name-filter-wrap' });
-    filterWrap.appendChild(el('label', { class: 'name-filter-label' }, 'Staff Search'));
-    const filterInput = el('input', {
-      type: 'search',
-      class: 'name-filter',
-      autocomplete: 'off',
-    });
-    filterInput.value = state.filter || '';
-    filterInput.addEventListener('input', () => {
-      state.filter = filterInput.value;
-      // Mirror the value into every other staff search input on the page
-      document.querySelectorAll('.name-filter').forEach(other => {
-        if (other !== filterInput) other.value = state.filter;
-      });
-      applyNameFilter();
-    });
-    filterWrap.appendChild(filterInput);
-    header.appendChild(filterWrap);
-
-    if (isLoggedIn() && (isOwner() || canEditClub(club.id))) {
-      header.appendChild(el('button', { onclick: () => openRosterModal(club) }, 'Manage roster'));
+    if (isLoggedIn() && data) {
       header.appendChild(el('button', {
-        class: 'primary',
-        onclick: () => openPublishModal(club, data),
-      }, 'Publish changes'));
+        class: 'ghost',
+        onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
+      }, 'PDF'));
     }
+
     wrap.appendChild(header);
 
     if (!data) {
@@ -453,53 +721,122 @@
       return wrap;
     }
 
-    // Recent changes panel — visible to everyone including anonymous staff.
-    // Shows the single most recent change inline, with a View more button
-    // that expands to reveal the rest on click.
-    const updates = data.recent_updates || (data.last_update ? [data.last_update] : []);
-    if (updates.length) {
-      const panel = el('div', { class: 'recent-updates' });
-      panel.appendChild(el('div', { class: 'recent-updates-title muted' },
-        `Recent changes (${updates.length})`));
 
-      const listEl = el('div', { class: 'recent-updates-list' });
-      const renderRow = (u) => {
-        const row = el('div', { class: 'recent-updates-row' + (u.action === 'schedule_published' ? ' recent-publish' : '') });
-        row.appendChild(el('span', { class: 'muted' }, fmtRelative(u.created_at)));
-        row.appendChild(el('span', { class: 'recent-who' }, u.user_label || 'unknown'));
-        row.appendChild(el('span', {}, describeAuditEntry({
-          action: u.action,
-          details: u.details || {},
-          club_name: club.name,
-          team: (u.details || {}).team || null,
-        })));
-        return row;
-      };
 
-      listEl.appendChild(renderRow(updates[0]));
-      panel.appendChild(listEl);
+    // Draft toolbar (Undo / Redo / Save Draft) — shown under every club
+    // so the user doesn't have to scroll back up to save.
+    if (isLoggedIn()) {
+      const draftBar = el('div', { class: 'draft-toolbar', 'data-club-id': club.id });
+      const clubCount = countForClub(club.id);
+      const clubUndo = undoCountForClub(club.id);
+      const clubRedo = redoCountForClub(club.id);
+      const rs = data ? (data.review_status || 'draft') : 'draft';
 
-      if (updates.length > 1) {
-        const toggle = el('button', {
-          class: 'ghost recent-updates-toggle',
-        });
-        let expanded = false;
-        toggle.textContent = `View more (${updates.length - 1})`;
-        toggle.addEventListener('click', () => {
-          expanded = !expanded;
-          if (expanded) {
-            updates.slice(1).forEach(u => listEl.appendChild(renderRow(u)));
-            toggle.textContent = 'Hide';
-          } else {
-            while (listEl.children.length > 1) listEl.removeChild(listEl.lastChild);
-            toggle.textContent = `View more (${updates.length - 1})`;
-          }
-        });
-        panel.appendChild(toggle);
+      let statusText, statusClass;
+      if (clubCount) {
+        statusText = `${clubCount} unsaved change${clubCount === 1 ? '' : 's'}`;
+        statusClass = 'review-badge draft';
+      } else if (rs === 'approved') {
+        statusText = isOwner() ? 'Approved' : 'Approved';
+        statusClass = 'review-badge sent';
+      } else if (rs === 'submitted') {
+        statusText = isOwner() ? 'Changes awaiting your approval' : 'Sent for review — awaiting approval';
+        statusClass = 'review-badge pending';
+      } else if (rs === 'changes_pending') {
+        statusText = isOwner() ? 'New changes since last approval' : 'Changes since last approval — send for review';
+        statusClass = 'review-badge pending';
+      } else {
+        statusText = isOwner() ? 'Draft — not yet submitted' : 'Draft — not yet sent for review';
+        statusClass = 'review-badge draft';
+      }
+      draftBar.appendChild(el('span', { class: statusClass }, statusText));
+      draftBar.appendChild(el('button', {
+        class: 'draft-undo', disabled: !clubUndo,
+        onclick: () => undoForClub(club.id),
+      }, 'Undo'));
+      draftBar.appendChild(el('button', {
+        class: 'draft-redo', disabled: !clubRedo,
+        onclick: () => redoForClub(club.id),
+      }, 'Redo'));
+      draftBar.appendChild(el('button', {
+        class: 'primary draft-save', disabled: !clubCount,
+        onclick: () => saveDraftForClub(club.id),
+      }, 'Save Draft'));
+
+      // Add/Remove Staff + Clear Schedule — pushed to far right
+      draftBar.appendChild(el('div', { class: 'spacer' }));
+      draftBar.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => openRosterModal(club),
+      }, 'Add/Remove Staff'));
+      draftBar.appendChild(el('button', {
+        class: 'ghost danger',
+        disabled: !data || !data.schedule,
+        onclick: () => openClearScheduleModal(club, data),
+      }, 'Clear Schedule'));
+
+      // Publish (owner) / Send for Review (manager)
+      // Green = first time sending. Orange = resend (changes after previous send).
+      // Disabled/faded while unsaved changes exist.
+      const firstSend = !clubCount && rs === 'draft';
+      const resend = !clubCount && rs === 'changes_pending';
+      const alreadySent = !clubCount && (rs === 'submitted' || rs === 'approved');
+      let btnClass = 'primary';
+      if (firstSend) btnClass = 'btn-review-ready';        // green
+      else if (resend) btnClass = 'btn-review-resend';      // orange
+      if (isOwner()) {
+        let ownerClass = 'primary';
+        if (firstSend || resend) ownerClass = 'btn-approve-ready';
+        draftBar.appendChild(el('button', {
+          class: ownerClass,
+          disabled: clubCount > 0,
+          onclick: async () => {
+            try {
+              await api(`/api/clubs/${club.id}/approve`, {
+                method: 'POST',
+                body: { week_start: data.schedule.week_start },
+              });
+              toast('Published');
+              await loadAllSchedules();
+              renderBody();
+            } catch (e) { toast(e.message, 'err'); }
+          },
+        }, 'Publish'));
+      } else {
+        let label = 'Send for Review';
+        if (resend) label = 'Resend for Review';
+        if (alreadySent) label = 'Sent for Review ✓';
+        draftBar.appendChild(el('button', {
+          class: btnClass,
+          disabled: clubCount > 0,
+          onclick: () => openPublishModal(club, data),
+        }, label));
       }
 
-      wrap.appendChild(panel);
+      wrap.appendChild(draftBar);
     }
+
+    // Week heading with inline tabs (signed-in) or plain label (staff)
+    const weekHeading = el('div', { class: 'club-week-heading' });
+    weekHeading.appendChild(el('span', {},
+      WEEK_HEADINGS[weekKey] || 'Current Work Week'));
+    if (isLoggedIn()) {
+      WEEK_KEYS.forEach(key => {
+        weekHeading.appendChild(el('button', {
+          class: 'week-tab-inline' + (state.tab === key ? ' active' : ''),
+          onclick: () => switchTab(key),
+        }, WEEK_LABELS[key]));
+      });
+      // Recent activity button — shows activity for this specific week
+      if (data && data.recent_updates && data.recent_updates.length) {
+        weekHeading.appendChild(el('button', {
+          class: 'ghost',
+          style: 'font-size:12px;',
+          onclick: () => openWeekActivityModal(club, data),
+        }, `Activity (${data.recent_updates.length})`));
+      }
+    }
+    wrap.appendChild(weekHeading);
 
     wrap.appendChild(buildScheduleGrid(club, data));
     // Totals are a management-only view. Regular staff visiting without an
@@ -516,6 +853,19 @@
     const table = el('table', { class: 'schedule-table' });
     const weekStart = data.schedule.week_start;
 
+    // Build maps of cells edited since the last review.
+    // pendingReviewCells: Set for quick lookup
+    // pendingReviewInfo: Map with old_value/new_value for strikethrough on removals
+    const pendingReviewCells = new Set();
+    const pendingReviewInfo = new Map();
+    if (data.pending_cells) {
+      data.pending_cells.forEach(c => {
+        const key = `${c.employee_id}:${c.day_index}`;
+        pendingReviewCells.add(key);
+        pendingReviewInfo.set(key, { old_value: c.old_value || '', new_value: c.new_value || '' });
+      });
+    }
+
     // Helper to build a header row (used both in thead and repeated between
     // team groups so the date columns stay labeled for Jacksonville Beach).
     const buildHeaderRow = (labelText) => {
@@ -529,14 +879,9 @@
     };
 
     const thead = el('thead');
-    thead.appendChild(buildHeaderRow('Employee'));
-    table.appendChild(thead);
-
     const tbody = el('tbody');
     const groups = new Map();
     for (const e of data.employees) {
-      // Use the literal team value (including null/empty) so single-group
-      // clubs collapse into one unnamed bucket.
       const key = e.team || '';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
@@ -547,22 +892,26 @@
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-    // Only draw team divider rows when there is more than one group.
     const showDividers = sortedKeys.length > 1;
 
+    // First team's divider goes in thead ABOVE the date row
+    if (showDividers && sortedKeys[0]) {
+      const divider = el('tr', { class: 'team-divider' });
+      divider.appendChild(el('th', { colspan: 8 }, sortedKeys[0]));
+      thead.appendChild(divider);
+    }
+    thead.appendChild(buildHeaderRow('Employee'));
+    table.appendChild(thead);
+
     sortedKeys.forEach((teamName, idx) => {
-      if (showDividers && teamName) {
+      // Second+ teams get a divider + repeated date header in tbody
+      if (showDividers && teamName && idx > 0) {
         const divider = el('tr', { class: 'team-divider' });
         divider.appendChild(el('td', { colspan: 8 }, teamName));
         tbody.appendChild(divider);
-        // Between team groups, repeat the date header row so the columns
-        // stay labeled when a team (e.g. Jacksonville Beach) starts partway
-        // down the table
-        if (idx > 0) {
-          const repeatHeader = buildHeaderRow('');
-          repeatHeader.classList.add('repeat-header');
-          tbody.appendChild(repeatHeader);
-        }
+        const repeatHeader = buildHeaderRow('');
+        repeatHeader.classList.add('repeat-header');
+        tbody.appendChild(repeatHeader);
       }
 
       for (const emp of groups.get(teamName)) {
@@ -572,27 +921,60 @@
         row.appendChild(el('td', { class: 'name-cell' }, emp.name));
         for (let d = 0; d < 7; d++) {
           const td = el('td', { class: 'day-cell' });
-          const cellVal = (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+          const key = cellKey(data.schedule.id, emp.id, d);
+          const serverVal = (data.shifts[emp.id] && data.shifts[emp.id][d]) || '';
+          const pending = state.pendingChanges.get(key);
+          const cellVal = pending ? pending.shift_text : serverVal;
           if (editable) {
-            const input = el('input', { type: 'text', placeholder: '—' });
+            const input = el('input', { type: 'text', 'data-cell-key': key });
             input.value = cellVal;
             input.style.color = cellColorFor(cellVal);
-            let t;
+            // Amber if locally edited OR edited since last review
+            const isPendingReview = pendingReviewCells.has(`${emp.id}:${d}`);
+            if (pending || isPendingReview) input.classList.add('cell-dirty');
             input.addEventListener('input', () => {
               input.style.color = cellColorFor(input.value);
-              clearTimeout(t);
-              t = setTimeout(async () => {
-                try {
-                  await api(`/api/schedules/${data.schedule.id}/cell`, {
-                    method: 'PATCH',
-                    body: { employee_id: emp.id, day_index: d, shift_text: input.value },
-                  });
-                  data.shifts[emp.id] = data.shifts[emp.id] || {};
-                  data.shifts[emp.id][d] = input.value;
-                } catch (err) { toast(err.message, 'err'); }
-              }, 350);
+              const prevVal = state.pendingChanges.has(key)
+                ? state.pendingChanges.get(key).shift_text : serverVal;
+              recordEdit(key,
+                { schedule_id: data.schedule.id, employee_id: emp.id, day_index: d, club_id: club.id },
+                prevVal, input.value, serverVal);
+              input.classList.toggle('cell-dirty',
+                input.value !== serverVal || isPendingReview);
             });
             td.appendChild(input);
+            // If a shift was removed (old had text, current is empty), show
+            // strikethrough of the old value so owners can see what was deleted.
+            // Only visible to signed-in users, not staff.
+            if (isPendingReview && !cellVal) {
+              const info = pendingReviewInfo.get(`${emp.id}:${d}`);
+              if (info && info.old_value) {
+                const strike = el('div', { class: 'cell-removed' }, info.old_value);
+                td.appendChild(strike);
+              }
+            }
+            // Owner-only: small approve button on amber cells.
+            // When approved, the strikethrough (removed shift) disappears.
+            if (isOwner() && isPendingReview) {
+              const approveBtn = el('button', {
+                class: 'cell-approve-btn',
+                title: 'Approve this shift',
+                onclick: async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await api(`/api/schedules/${data.schedule.id}/approve-cell`, {
+                      method: 'POST',
+                      body: { employee_id: emp.id, day_index: d },
+                    });
+                    input.classList.remove('cell-dirty');
+                    const strike = td.querySelector('.cell-removed');
+                    if (strike) strike.remove();
+                    approveBtn.remove();
+                  } catch (err) { toast(err.message, 'err'); }
+                },
+              }, '\u2713');
+              td.appendChild(approveBtn);
+            }
           } else {
             const div = el('div', { class: 'day-readonly' }, cellVal || '—');
             div.style.color = cellColorFor(cellVal);
@@ -618,6 +1000,11 @@
     const wrap = el('div', { class: 'totals-wrap' });
     wrap.appendChild(el('div', { class: 'totals-label' }, 'Staffing by location'));
 
+    const pendingReviewTotals = new Set();
+    if (data.pending_totals) {
+      data.pending_totals.forEach(t => pendingReviewTotals.add(`${t.location}:${t.day_index}`));
+    }
+
     const table = el('table', { class: 'totals-table' });
     const thead = el('thead');
     const hrow = el('tr');
@@ -635,24 +1022,23 @@
       tr.appendChild(el('td', { class: 'totals-loc' }, loc));
       for (let d = 0; d < 7; d++) {
         const td = el('td', { class: 'totals-cell' });
-        const val = (data.totals && data.totals[loc] && data.totals[loc][d]) || '';
+        const tKey = totalKey(data.schedule.id, loc, d);
+        const serverVal = (data.totals && data.totals[loc] && data.totals[loc][d]) || '';
+        const pending = state.pendingChanges.get(tKey);
+        const val = pending ? pending.shift_text : serverVal;
         if (editable) {
-          const input = el('input', { type: 'text', placeholder: '—', inputmode: 'numeric' });
+          const input = el('input', { type: 'text', inputmode: 'numeric', 'data-cell-key': tKey });
           input.value = val;
-          let t;
+          const isTotalPending = pendingReviewTotals.has(`${loc}:${d}`);
+          if (pending || isTotalPending) input.classList.add('cell-dirty');
           input.addEventListener('input', () => {
-            clearTimeout(t);
-            t = setTimeout(async () => {
-              try {
-                await api(`/api/schedules/${data.schedule.id}/total`, {
-                  method: 'PATCH',
-                  body: { location: loc, day_index: d, count_text: input.value },
-                });
-                data.totals = data.totals || {};
-                data.totals[loc] = data.totals[loc] || {};
-                data.totals[loc][d] = input.value;
-              } catch (err) { toast(err.message, 'err'); }
-            }, 350);
+            const prevVal = state.pendingChanges.has(tKey)
+              ? state.pendingChanges.get(tKey).shift_text : serverVal;
+            recordEdit(tKey,
+              { schedule_id: data.schedule.id, location: loc, day_index: d, club_id: club.id },
+              prevVal, input.value, serverVal);
+            input.classList.toggle('cell-dirty',
+              input.value !== serverVal || isTotalPending);
           });
           td.appendChild(input);
         } else {
@@ -791,6 +1177,10 @@
 
     content.appendChild(el('div', { class: 'modal-actions' }, [
       el('button', { onclick: closeModal }, 'Close'),
+      el('button', {
+        class: 'ghost',
+        onclick: () => { window.location.href = '/api/export/backup'; },
+      }, 'Download full backup (JSON)'),
     ]));
 
     function renderTab() {
@@ -837,6 +1227,10 @@
         tr.appendChild(el('td', {}, u.team || '—'));
         const actions = el('td');
         actions.appendChild(el('button', {
+          onclick: () => openEditUserModal(u, refresh),
+        }, 'Edit'));
+        actions.appendChild(document.createTextNode(' '));
+        actions.appendChild(el('button', {
           onclick: async () => {
             const pw = prompt(`New password for ${u.email}:`);
             if (!pw) return;
@@ -873,6 +1267,91 @@
     }, '+ Create manager'));
 
     refresh();
+  }
+
+  function openEditUserModal(u, onSaved) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Edit user — ${u.email}`));
+    const nameIn = el('input', { type: 'text', value: u.name || '' });
+    const emailIn = el('input', { type: 'email', value: u.email });
+    const roleSel = el('select');
+    ['manager', 'owner'].forEach(r => {
+      const opt = el('option', { value: r }, r);
+      if (r === u.role) opt.setAttribute('selected', 'selected');
+      roleSel.appendChild(opt);
+    });
+    const clubSel = el('select');
+    state.clubs.forEach(c => {
+      const opt = el('option', { value: c.id }, c.name);
+      if (Number(c.id) === Number(u.club_id)) opt.setAttribute('selected', 'selected');
+      clubSel.appendChild(opt);
+    });
+    const teamSel = el('select');
+    const clubLabel = el('label', {}, ['Club', clubSel]);
+    const teamLabel = el('label', {}, ['Team', teamSel]);
+    function refreshTeams() {
+      teamSel.innerHTML = '';
+      const club = state.clubs.find(c => c.id === Number(clubSel.value));
+      const teams = teamsForClub(club ? club.name : '');
+      if (teams.length === 0) {
+        teamLabel.style.display = 'none';
+      } else {
+        teamLabel.style.display = '';
+        teams.forEach(t => {
+          const opt = el('option', { value: t }, t);
+          if (t === u.team) opt.setAttribute('selected', 'selected');
+          teamSel.appendChild(opt);
+        });
+      }
+    }
+    clubSel.addEventListener('change', refreshTeams);
+    function updateClubFields() {
+      const show = roleSel.value === 'manager';
+      clubLabel.style.display = show ? '' : 'none';
+      teamLabel.style.display = show ? '' : 'none';
+      if (show) refreshTeams();
+    }
+    roleSel.addEventListener('change', updateClubFields);
+
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(el('label', {}, ['Name', nameIn]));
+    content.appendChild(el('label', {}, ['Email', emailIn]));
+    content.appendChild(el('label', {}, ['Role', roleSel]));
+    content.appendChild(clubLabel);
+    content.appendChild(teamLabel);
+    content.appendChild(errDiv);
+    updateClubFields();
+
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'primary',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            const club = state.clubs.find(c => c.id === Number(clubSel.value));
+            const teams = teamsForClub(club ? club.name : '');
+            const body = {
+              name: nameIn.value.trim(),
+              email: emailIn.value.trim(),
+              role: roleSel.value,
+            };
+            if (roleSel.value === 'manager') {
+              body.club_id = Number(clubSel.value);
+              body.team = teams.length ? teamSel.value : null;
+            } else {
+              body.club_id = null;
+              body.team = null;
+            }
+            await api(`/api/users/${u.id}`, { method: 'PATCH', body });
+            closeModal();
+            toast('User updated');
+            if (onSaved) onSaved();
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Save'),
+    ]));
+    openModal(content);
   }
 
   function openCreateUserModal(onCreated) {
@@ -952,7 +1431,7 @@
 
     const appendEntries = (entries) => {
       entries.forEach(e => {
-        const row = el('div', { class: 'activity-row' + (e.action === 'schedule_published' ? ' activity-publish' : '') });
+        const row = el('div', { class: 'activity-row' + (e.action === 'schedule_published' || e.action === 'schedule_submitted' ? ' activity-publish' : '') });
         row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(e.created_at)));
         row.appendChild(el('div', { class: 'activity-who muted' }, e.user_label));
         row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry(e)));
@@ -1014,10 +1493,17 @@
         return `updated ${d.employee_name} in ${club}${team}`;
       case 'employee_archive':
         return `archived ${d.employee_name} from ${club}${team}`;
-      case 'schedule_published': {
+      case 'schedule_submitted': {
         const msg = d.message ? ` — "${d.message}"` : '';
-        return `published the ${club || d.club_name || 'club'}${team} schedule for week of ${d.week_start}${msg}`;
+        return `sent ${club || d.club_name || 'club'}${team} schedule for review — week of ${d.week_start}${msg}`;
       }
+      case 'schedule_published': {
+        return `approved ${club || d.club_name || 'club'}${team} schedule — week of ${d.week_start}`;
+      }
+      case 'schedule_cleared':
+        return `cleared all shifts for ${club || d.club_name || 'club'} — week of ${d.week_start}`;
+      case 'time_off_applied':
+        return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
       case 'user_create':
         return `created user ${d.email} (${d.role}${d.team ? ', ' + d.team : ''})`;
       case 'user_update':
@@ -1029,13 +1515,74 @@
     }
   }
 
+  // Renders a single club header for the staff view — shown once above
+  // all the stacked week grids instead of repeating per-week.
+  function renderStaffHeader(club) {
+    const wrap = el('div', { class: 'staff-header-section' });
+
+    const header = el('div', { class: 'club-header' });
+    header.appendChild(el('h2', {}, club.name));
+
+    const filterWrap = el('div', { class: 'name-filter-wrap' });
+    filterWrap.appendChild(el('label', { class: 'name-filter-label' }, 'Staff Search'));
+    const filterInput = el('input', {
+      type: 'search',
+      class: 'name-filter',
+      autocomplete: 'off',
+    });
+    filterInput.value = state.filter || '';
+    filterInput.addEventListener('input', () => {
+      state.filter = filterInput.value;
+      document.querySelectorAll('.name-filter').forEach(other => {
+        if (other !== filterInput) other.value = state.filter;
+      });
+      applyNameFilter();
+    });
+    filterWrap.appendChild(filterInput);
+    header.appendChild(filterWrap);
+    wrap.appendChild(header);
+
+    return wrap;
+  }
+
+  // -------- week activity modal --------
+  function openWeekActivityModal(club, data) {
+    const updates = data.recent_updates || [];
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Activity — ${club.name} — week of ${data.schedule.week_start}`));
+
+    if (!updates.length) {
+      content.appendChild(el('div', { class: 'muted' }, 'No activity for this week.'));
+    } else {
+      const list = el('div', { class: 'activity-list' });
+      updates.forEach(u => {
+        const row = el('div', { class: 'activity-row' + (u.action === 'schedule_published' || u.action === 'schedule_submitted' ? ' activity-publish' : '') });
+        row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(u.created_at)));
+        row.appendChild(el('div', { class: 'activity-who muted' }, u.user_label || 'unknown'));
+        row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry({
+          action: u.action,
+          details: u.details || {},
+          club_name: club.name,
+          team: (u.details || {}).team || null,
+        })));
+        list.appendChild(row);
+      });
+      content.appendChild(list);
+    }
+
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Close'),
+    ]));
+    openModal(content, { wide: true });
+  }
+
   // -------- publish modal --------
   function openPublishModal(club, data) {
     const content = el('div');
-    content.appendChild(el('h2', {}, `Publish changes — ${club.name}`));
+    content.appendChild(el('h2', {}, `Send for Review — ${club.name}`));
     content.appendChild(el('p', { class: 'muted' },
-      `This will notify the owners that your schedule for the week of ${data.schedule.week_start} is ready.`));
-    const msgIn = el('textarea', { placeholder: 'Optional note to the owners (e.g. "all shifts confirmed")' });
+      `This will notify the owners that your schedule for the week of ${data.schedule.week_start} is ready for review.`));
+    const msgIn = el('textarea', { placeholder: 'Optional note (e.g. "all shifts confirmed")' });
     msgIn.style.minHeight = '70px';
     const errDiv = el('div', { class: 'error' });
     content.appendChild(el('label', {}, ['Note (optional)', msgIn]));
@@ -1052,12 +1599,48 @@
               body: { week_start: data.schedule.week_start, message: msgIn.value.trim() },
             });
             closeModal();
-            toast('Published — owners will be notified');
+            toast('Sent for review');
             await loadAllSchedules();
             renderBody();
           } catch (e) { errDiv.textContent = e.message; }
         },
-      }, 'Publish'),
+      }, 'Send'),
+    ]));
+    openModal(content);
+  }
+
+  // -------- clear schedule modal --------
+  function openClearScheduleModal(club, data) {
+    if (!data || !data.schedule) return;
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Clear Schedule — ${club.name}`));
+    content.appendChild(el('p', {},
+      `This will delete all shifts, staffing totals, and notes for the week of ${data.schedule.week_start}.`));
+    content.appendChild(el('p', { style: 'color:var(--danger);font-weight:600;' },
+      'This action cannot be undone.'));
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(errDiv);
+    content.appendChild(el('div', { class: 'modal-actions' }, [
+      el('button', { onclick: closeModal }, 'Cancel'),
+      el('button', {
+        class: 'danger',
+        onclick: async () => {
+          errDiv.textContent = '';
+          try {
+            await api(`/api/schedules/${data.schedule.id}/clear`, { method: 'POST' });
+            // Discard any pending changes for this club
+            state.pendingChanges.forEach((v, k) => {
+              if (Number(v.club_id) === club.id) state.pendingChanges.delete(k);
+            });
+            state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== club.id);
+            state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== club.id);
+            closeModal();
+            toast('Schedule cleared');
+            await loadAllSchedules();
+            renderBody();
+          } catch (e) { errDiv.textContent = e.message; }
+        },
+      }, 'Clear Everything'),
     ]));
     openModal(content);
   }
