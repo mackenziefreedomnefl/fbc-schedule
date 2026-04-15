@@ -470,6 +470,13 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   text-align: left;
   vertical-align: middle;
 }
+/* Zebra striping */
+.schedule-table tbody tr:nth-child(even):not(.team-divider):not(.repeat-header) {
+  background: rgba(0, 0, 0, 0.03);
+}
+.schedule-table tbody tr:nth-child(even):not(.team-divider):not(.repeat-header) td.day-cell input {
+  background: rgba(0, 0, 0, 0.02);
+}
 .schedule-table th {
   background: var(--panel-2);
   font-weight: 600;

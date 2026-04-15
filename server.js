@@ -1154,17 +1154,17 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       }
 
       for (const emp of groups.get(teamName)) {
-        if (y > doc.page.height - 25) { doc.addPage(); y = 20; }
-        const rowH = 13;
-        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#eef2f9';
+        if (y > doc.page.height - 30) { doc.addPage(); y = 20; }
+        const rowH = 16;
+        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#e8edf6';
 
         // Fill entire row background first
         doc.rect(startX, y, tableW, rowH).fill(rowBg);
 
         // Name cell — darker background to stand out
-        doc.rect(startX, y, nameColW, rowH).fill(rowIdx % 2 === 0 ? '#dce4f0' : '#c8d4e6');
-        doc.fontSize(6.5).font('Helvetica-Bold').fillColor('#000000')
-          .text(emp.name, startX + 4, y + 3, { width: nameColW - 8 });
+        doc.rect(startX, y, nameColW, rowH).fill(rowIdx % 2 === 0 ? '#dce4f0' : '#c4d2e8');
+        doc.fontSize(7).font('Helvetica-Bold').fillColor('#000000')
+          .text(emp.name, startX + 6, y + 4, { width: nameColW - 12 });
 
         // Day cells text
         for (let d = 0; d < 7; d++) {
@@ -1175,15 +1175,16 @@ app.get('/api/export/pdf', ah(async (req, res) => {
             if (lower.includes('req off')) doc.fillColor('#aa0000');
             else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#0033aa');
             else doc.fillColor('#000000');
-            doc.fontSize(6.5).font('Helvetica-Bold').text(val, x + 2, y + 3, { width: dayColW - 4, align: 'center' });
+            doc.fontSize(7).font('Helvetica-Bold').text(val, x + 3, y + 4, { width: dayColW - 6, align: 'center' });
           }
         }
 
-        // Draw grid lines ON TOP — thick dark lines
-        doc.lineWidth(0.75).strokeColor('#333333');
+        // Draw grid lines — softer color for less congestion
+        doc.lineWidth(0.5).strokeColor('#8898b0');
         // Horizontal line at bottom of row
         doc.moveTo(startX, y + rowH).lineTo(startX + tableW, y + rowH).stroke();
         // Vertical lines for each column
+        doc.lineWidth(0.3).strokeColor('#a0aec0');
         doc.moveTo(startX, y).lineTo(startX, y + rowH).stroke();
         doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + rowH).stroke();
         for (let d = 1; d <= 7; d++) {
