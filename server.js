@@ -121,6 +121,7 @@ function describeEmailEvent(e) {
       return `approved ${d.club_name || 'club'} schedule — week of ${d.week_start || '?'}`;
     }
     case 'schedule_cleared': return `cleared all shifts for ${d.club_name || 'club'} — week of ${d.week_start || '?'}`;
+    case 'schedule_imported': return `imported ${d.imported_count || 0} entries for ${d.club_name || 'club'} — week of ${d.week_start || '?'}`;
     case 'notice_edit': return `updated the shift notice`;
     case 'time_off_applied': return `applied time-off for ${d.employee_name} (${(d.dates || []).join(', ')}) from Slack`;
     case 'user_create': return `created user ${d.email} (${d.role || '?'})`;
@@ -861,17 +862,14 @@ app.patch('/api/schedules/:id/notes', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Clear all shifts and location totals for a schedule (manager+)
+// Clear all shifts and location totals for a schedule (owner-only)
 app.post('/api/schedules/:id/clear', ah(async (req, res) => {
   const user = await loadUser(req);
-  if (!user) return res.status(401).json({ error: 'sign in required' });
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
   const scheduleId = Number(req.params.id);
   const { rows: schedRows } = await pool.query('SELECT * FROM schedules WHERE id = $1', [scheduleId]);
   const sched = schedRows[0];
   if (!sched) return res.status(404).json({ error: 'schedule not found' });
-  if (!canEditClub(user, sched.club_id)) {
-    return res.status(403).json({ error: 'you do not manage this club' });
-  }
   const weekStart = sched.week_start instanceof Date
     ? sched.week_start.toISOString().slice(0, 10) : sched.week_start;
   await pool.query('DELETE FROM shifts WHERE schedule_id = $1', [scheduleId]);
@@ -883,6 +881,83 @@ app.post('/api/schedules/:id/clear', ah(async (req, res) => {
     club_name: clubRows[0] ? clubRows[0].name : '',
   });
   res.json({ ok: true });
+}));
+
+// Import schedule data from JSON (owner-only). Accepts the same format
+// as the backup export: { shifts: [{employee_name, day_index, shift_text}], totals: [{location, day_index, count_text}], notes }
+// Targets a specific club + week. Matches employees by name.
+app.post('/api/clubs/:id/import', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const clubId = Number(req.params.id);
+  const { week_start, shifts, totals, notes } = req.body || {};
+  if (!week_start) return res.status(400).json({ error: 'week_start required' });
+  let weekStart;
+  try { weekStart = mondayOf(week_start); }
+  catch (e) { return res.status(400).json({ error: 'bad week_start (YYYY-MM-DD)' }); }
+
+  const schedule = await getOrCreateSchedule(clubId, weekStart);
+  const { rows: clubRows } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
+  const clubName = clubRows[0] ? clubRows[0].name : '';
+
+  // Build employee name→id lookup (active employees only)
+  const { rows: emps } = await pool.query(
+    'SELECT id, name FROM employees WHERE club_id = $1 AND archived = FALSE', [clubId]);
+  const empByName = {};
+  for (const e of emps) empByName[e.name.toLowerCase().trim()] = e.id;
+
+  let imported = 0;
+  let skipped = [];
+
+  // Import shifts
+  if (Array.isArray(shifts)) {
+    for (const s of shifts) {
+      if (s.employee_name == null || s.day_index == null) continue;
+      const empId = empByName[String(s.employee_name).toLowerCase().trim()];
+      if (!empId) { skipped.push(s.employee_name); continue; }
+      const dayIdx = Number(s.day_index);
+      if (dayIdx < 0 || dayIdx > 6) continue;
+      await pool.query(
+        `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (schedule_id, employee_id, day_index)
+         DO UPDATE SET shift_text = EXCLUDED.shift_text`,
+        [schedule.id, empId, dayIdx, s.shift_text || '']
+      );
+      imported++;
+    }
+  }
+
+  // Import totals
+  if (Array.isArray(totals)) {
+    for (const t of totals) {
+      if (!t.location || t.day_index == null) continue;
+      const dayIdx = Number(t.day_index);
+      if (dayIdx < 0 || dayIdx > 6) continue;
+      await pool.query(
+        `INSERT INTO location_totals (schedule_id, location, day_index, count_text)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (schedule_id, location, day_index)
+         DO UPDATE SET count_text = EXCLUDED.count_text`,
+        [schedule.id, t.location, dayIdx, t.count_text || '']
+      );
+      imported++;
+    }
+  }
+
+  // Import notes
+  if (notes != null) {
+    await pool.query('UPDATE schedules SET notes = $1, updated_at = NOW() WHERE id = $2', [notes, schedule.id]);
+  }
+
+  await pool.query('UPDATE schedules SET updated_at = NOW() WHERE id = $1', [schedule.id]);
+  await audit(user, 'schedule_imported', clubId, null, {
+    week_start: weekStart,
+    club_name: clubName,
+    imported_count: imported,
+    skipped_names: [...new Set(skipped)],
+  });
+  res.json({ ok: true, imported, skipped: [...new Set(skipped)] });
 }));
 
 // ---------- health ----------
