@@ -495,11 +495,10 @@
     if (isLoggedIn()) {
       const label = state.me.name || state.me.email;
       const role = isOwner() ? 'Owner' : 'Manager';
-      chip.appendChild(el('span', { class: 'muted topbar-label' }, `${label} · ${role}`));
 
       // Club picker (owners only)
       if (isOwner()) {
-        chip.appendChild(el('span', { class: 'muted' }, 'Viewing:'));
+        chip.appendChild(el('span', { class: 'muted', style: 'font-size:12px;' }, 'Viewing:'));
         chip.appendChild(el('button', {
           class: 'ghost topbar-btn' + (!state.adminClubId ? ' active' : ''),
           onclick: () => { state.adminClubId = null; renderBody(); },
@@ -529,30 +528,36 @@
       });
       chip.appendChild(filterInput);
 
-      // View Live Schedule
-      chip.appendChild(el('a', {
-        href: '?view=staff',
-        target: '_blank',
-        class: 'ghost topbar-btn',
-        style: 'text-decoration:none;',
+      // User menu dropdown
+      const menuWrap = el('div', { class: 'topbar-menu-wrap' });
+      const menuBtn = el('button', {
+        class: 'ghost topbar-btn topbar-menu-btn',
+        onclick: (e) => {
+          e.stopPropagation();
+          menuWrap.classList.toggle('open');
+          const close = () => { menuWrap.classList.remove('open'); document.removeEventListener('click', close); };
+          if (menuWrap.classList.contains('open')) {
+            setTimeout(() => document.addEventListener('click', close), 0);
+          }
+        },
+      }, `${label} \u25BE`);
+      const menu = el('div', { class: 'topbar-dropdown' });
+
+      menu.appendChild(el('div', { class: 'topbar-dropdown-label muted' }, `${label} · ${role}`));
+
+      menu.appendChild(el('button', {
+        onclick: () => { window.open('?view=staff', '_blank'); },
       }, 'Live Schedule'));
 
-      // View as Manager (owners only)
       if (isOwner()) {
-        chip.appendChild(el('a', {
-          href: '?view=manager',
-          target: '_blank',
-          class: 'ghost topbar-btn',
-          style: 'text-decoration:none;',
+        menu.appendChild(el('button', {
+          onclick: () => { window.open('?view=manager', '_blank'); },
         }, 'View as Manager'));
+        menu.appendChild(el('button', { onclick: openAdminPanel }, 'Admin'));
       }
 
-      if (isOwner()) {
-        chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openAdminPanel }, 'Admin'));
-      }
-      chip.appendChild(el('button', { class: 'ghost topbar-btn', onclick: openChangePasswordModal }, 'Account'));
-      chip.appendChild(el('button', {
-        class: 'ghost topbar-btn',
+      menu.appendChild(el('button', { onclick: openChangePasswordModal }, 'Account'));
+      menu.appendChild(el('button', {
         onclick: async () => {
           try { await api('/api/logout', { method: 'POST' }); } catch (_) {}
           state.me = { id: null };
@@ -560,6 +565,10 @@
           toast('Signed out');
         },
       }, 'Sign out'));
+
+      menuWrap.appendChild(menuBtn);
+      menuWrap.appendChild(menu);
+      chip.appendChild(menuWrap);
     } else {
       chip.appendChild(el('button', { class: 'primary', onclick: openLoginModal }, 'Sign in'));
     }

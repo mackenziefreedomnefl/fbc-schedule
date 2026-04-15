@@ -61,7 +61,7 @@ const REMOVED_FROM_ROSTER = [
   { club: 'Jacksonville', name: 'Rain Bartenfelder' },
   { club: 'St. Augustine', name: 'Andrew Gibner' },
   { club: 'St. Augustine', name: 'Dalton Hawley' },
-  { club: 'St. Augustine', name: 'John Gleaton-Hernandez' },
+  { club: 'St. Augustine', name: 'John Gleaton' },
 ];
 
 async function main() {
@@ -133,6 +133,14 @@ async function main() {
     if (r1 || r2) {
       console.log(`[migrate] renamed Jacksonville teams: Main→Julington Creek (${r1}), Team 2→Jacksonville Beach (${r2})`);
     }
+
+    // Rename employees (idempotent)
+    const { rowCount: rGleaton } = await pool.query(
+      `UPDATE employees SET name = 'John Gleaton'
+        WHERE name = 'John Gleaton-Hernandez'
+          AND club_id = (SELECT id FROM clubs WHERE name = 'St. Augustine')`
+    );
+    if (rGleaton) console.log('[migrate] renamed John Gleaton-Hernandez → John Gleaton');
 
     // Sync authoritative rosters. For every listed employee: upsert, unarchive,
     // set team + sort_order to match the list. For names in REMOVED_FROM_ROSTER:
@@ -320,7 +328,7 @@ const EXAMPLE_SHIFTS = {
       'Michael Guillet':       ['','','','','Req Off','Req Off','Req Off'],
       'Julia Catlett':         ['Camachee','','Camachee','','Camachee','Camachee','Camachee'],
       'Ryan Constantino':      ['Camachee','Camachee','','','Req Off','Req Off','Req Off'],
-      'John Gleaton-Hernandez':['','Camachee','','Camachee','Camachee','',''],
+      'John Gleaton':['','Camachee','','Camachee','Camachee','',''],
       'Bill Harris':           ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
       'Aidan Popp':            ['','','','','','Req Off','Camachee'],
       'Austin Corzo':          ['','','','12 - Close Camachee','','Camachee',''],
@@ -336,7 +344,7 @@ const EXAMPLE_SHIFTS = {
       'Michael Guillet':       ['','','','','Shipyard','',''],
       'Julia Catlett':         ['Camachee','','Camachee','','','Camachee','Camachee'],
       'Ryan Constantino':      ['','Camachee','','Camachee','','',''],
-      'John Gleaton-Hernandez':['','Camachee','','Camachee','','','Camachee'],
+      'John Gleaton':['','Camachee','','Camachee','','','Camachee'],
       'Bill Harris':           ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
       'Aidan Popp':            ['','','','','','Camachee','12 - Close Camachee'],
       'Austin Corzo':          ['','','','','','Camachee',''],
@@ -553,7 +561,7 @@ const IMPORT_DATA = {
         'Michael Guillet':        ['','','','','','Shipyard','Camachee'],
         'Julia Catlett':          ['Camachee','Camachee','Camachee','','','Camachee','Camachee'],
         'Ryan Constantino':       ['','Camachee','','Camachee','','Camachee',''],
-        'John Gleaton-Hernandez': ['','Camachee','','Camachee','','','Camachee'],
+        'John Gleaton': ['','Camachee','','Camachee','','','Camachee'],
         'Bill Harris':            ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
         'Aidan Popp':             ['','','','','','Camachee','12 - Close Camachee'],
         'Austin Corzo':           ['','','','','','Camachee',''],
@@ -571,7 +579,7 @@ const IMPORT_DATA = {
         'Michael Guillet':        ['','','','','Req Off','Req Off','Req Off'],
         'Julia Catlett':          ['Camachee','','Camachee','','Camachee','Camachee',''],
         'Ryan Constantino':       ['Camachee','Camachee','','','Req Off','Req Off','Req Off'],
-        'John Gleaton-Hernandez': ['','Camachee','','Camachee','','Camachee',''],
+        'John Gleaton': ['','Camachee','','Camachee','','Camachee',''],
         'Bill Harris':            ['Camachee','','Camachee','','','','Camachee'],
         'Aidan Popp':             ['','','','','','Req Off','Camachee'],
         'Austin Corzo':           ['','','','12 - Close Camachee','','Camachee','Camachee'],
@@ -589,7 +597,7 @@ const IMPORT_DATA = {
         'Michael Guillet':        ['','','','','','Shipyard','Shipyard'],
         'Julia Catlett':          ['Camachee','','Camachee','Shipyard','Req Off','Req Off','Req Off'],
         'Ryan Constantino':       ['Req Off','','','Camachee','Camachee','','Camachee'],
-        'John Gleaton-Hernandez': ['','Camachee','','Camachee','Camachee','Camachee',''],
+        'John Gleaton': ['','Camachee','','Camachee','Camachee','Camachee',''],
         'Bill Harris':            ['','Camachee','Camachee','Camachee','Req Off','Req Off','Req Off'],
         'Aidan Popp':             ['','','','','','Camachee','Camachee'],
         'Austin Corzo':           ['','','','','Camachee 12 - Close','Camachee','Camachee'],
@@ -607,7 +615,7 @@ const IMPORT_DATA = {
         'Michael Guillet':        ['','','','','','Shipyard','Camachee'],
         'Julia Catlett':          ['Camachee','Camachee','Camachee','','','Camachee','Camachee'],
         'Ryan Constantino':       ['','Camachee','','Camachee','','Camachee',''],
-        'John Gleaton-Hernandez': ['','Camachee','','Camachee','','','Camachee'],
+        'John Gleaton': ['','Camachee','','Camachee','','','Camachee'],
         'Bill Harris':            ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
         'Aidan Popp':             ['','','','','','Camachee','12 - Close Camachee'],
         'Austin Corzo':           ['','','','','','Camachee',''],
