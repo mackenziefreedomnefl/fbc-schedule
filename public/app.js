@@ -1316,7 +1316,12 @@
           const pending = state.pendingChanges.get(key);
           const cellVal = pending ? pending.shift_text : serverVal;
           if (editable) {
-            const input = el('input', { type: 'text', 'data-cell-key': key });
+            const isMobile = window.matchMedia('(max-width: 768px)').matches;
+            // On mobile, inputs are readonly — prevents iOS auto-zoom on tap.
+            // Managers pick shifts via the picker sheet instead of typing.
+            const inputProps = { type: 'text', 'data-cell-key': key };
+            if (isMobile) inputProps.readonly = 'readonly';
+            const input = el('input', inputProps);
             input.value = cellVal;
             input.style.color = cellColorFor(cellVal);
             // Amber if locally edited OR edited since last review
@@ -1339,15 +1344,13 @@
 
             input.addEventListener('input', () => applyValue(input.value));
 
-            // On mobile, tapping the input should open the picker instead of
-            // the keyboard — managers can tap through cells quickly without
-            // constantly pinch-zooming to hit each tiny input.
-            input.addEventListener('focus', (e) => {
-              if (window.matchMedia('(max-width: 768px)').matches) {
-                e.preventDefault();
-                input.blur();
-                openShiftPicker(td, club.name, input, applyValue);
-              }
+            // Clicking in a cell always opens the picker (mobile + desktop).
+            // On mobile the input is readonly so no keyboard appears.
+            // On desktop the input is still editable, but the picker also opens
+            // so managers can pick or type freely.
+            input.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openShiftPicker(td, club.name, input, applyValue);
             });
 
             // Shift picker trigger (always visible; desktop shows on hover)
