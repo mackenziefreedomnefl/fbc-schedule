@@ -249,6 +249,40 @@ async function main() {
       }
     }
 
+    // Hardcoded manager seeds — login with first name (lowercase), password 2026.
+    // club_name is used to look up the club_id.
+    const HARDCODED_MANAGERS = [
+      { login: 'sean',    password: '2026', name: 'Sean Dressander',    club: 'St. Augustine' },
+      { login: 'dustyn',  password: '2026', name: 'Dustyn Burd',        club: 'Jacksonville' },
+      { login: 'gavin',   password: '2026', name: 'Gavin Carillo',      club: 'St. Augustine' },
+      { login: 'jack',    password: '2026', name: 'Jack Fant',          club: 'St. Augustine' },
+      { login: 'nick',    password: '2026', name: 'Nick Tragemann',     club: 'Jacksonville' },
+      { login: 'michael', password: '2026', name: 'Michael Mobley',     club: 'Jacksonville' },
+      { login: 'sergio',  password: '2026', name: 'Sergio Palacios',    club: 'Jacksonville' },
+      { login: 'alison',  password: '2026', name: 'Alison Conner',      club: 'Jacksonville' },
+      { login: 'sam',     password: '2026', name: 'Samuel Wentworth',   club: 'Jacksonville' },
+    ];
+    for (const m of HARDCODED_MANAGERS) {
+      const login = m.login.toLowerCase().trim();
+      const { rows: clubRows } = await pool.query('SELECT id FROM clubs WHERE name = $1', [m.club]);
+      const clubId = clubRows[0] ? clubRows[0].id : null;
+      const { rows: existing } = await pool.query('SELECT id FROM users WHERE email = $1', [login]);
+      if (!existing[0]) {
+        const hash = await bcrypt.hash(m.password, 10);
+        await pool.query(
+          "INSERT INTO users (email, password_hash, role, club_id, name) VALUES ($1, $2, 'manager', $3, $4)",
+          [login, hash, clubId, m.name]
+        );
+        console.log(`[migrate] created manager ${login} (${m.name})`);
+      } else {
+        // Ensure existing user has manager role and correct club
+        await pool.query(
+          "UPDATE users SET role = 'manager', club_id = $1, name = $2 WHERE id = $3 AND (role <> 'manager' OR club_id IS DISTINCT FROM $1)",
+          [clubId, m.name, existing[0].id]
+        );
+      }
+    }
+
     // Prune audit log entries older than 30 days.
     const { rowCount: pruned } = await pool.query(
       "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '30 days'"
