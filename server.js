@@ -801,6 +801,42 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     [clubId, weekStart, sinceDate]
   );
 
+  // Pending time off requests that overlap this week
+  // Returns one row per (employee, day_index) with the request id so the
+  // frontend can show a ghosted "Req Off" and an Approve button.
+  const weekEnd = new Date(weekStart + 'T00:00:00Z');
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+  const weekEndStr = weekEnd.toISOString().slice(0, 10);
+  const { rows: pendingTimeOff } = await pool.query(
+    `SELECT id, employee_id, start_date, end_date
+       FROM time_off_requests
+      WHERE club_id = $1 AND status = 'pending'
+        AND start_date <= $3 AND end_date >= $2`,
+    [clubId, weekStart, weekEndStr]
+  );
+  // Expand each request into individual day_index cells within this week
+  const pendingTimeOffCells = [];
+  for (const req of pendingTimeOff) {
+    const start = new Date(req.start_date instanceof Date
+      ? req.start_date.toISOString().slice(0, 10) + 'T00:00:00Z'
+      : req.start_date + 'T00:00:00Z');
+    const end = new Date(req.end_date instanceof Date
+      ? req.end_date.toISOString().slice(0, 10) + 'T00:00:00Z'
+      : req.end_date + 'T00:00:00Z');
+    const weekStartDate = new Date(weekStart + 'T00:00:00Z');
+    for (let d = 0; d < 7; d++) {
+      const dayDate = new Date(weekStartDate);
+      dayDate.setUTCDate(dayDate.getUTCDate() + d);
+      if (dayDate >= start && dayDate <= end) {
+        pendingTimeOffCells.push({
+          request_id: req.id,
+          employee_id: req.employee_id,
+          day_index: d,
+        });
+      }
+    }
+  }
+
   res.json({
     schedule: {
       id: schedule.id,
@@ -818,6 +854,7 @@ app.get('/api/clubs/:id/schedule', ah(async (req, res) => {
     review_status: reviewStatus,
     pending_cells: pendingCells,
     pending_totals: pendingTotals,
+    pending_time_off: pendingTimeOffCells,
     last_update: lastUpdate,
     recent_updates: recentUpdates,
   });

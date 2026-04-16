@@ -1108,7 +1108,7 @@
   }
 
   // Shift picker popover — shows quick-pick buttons for common shifts
-  function openShiftPicker(anchorTd, clubName, input, applyValue) {
+  function openShiftPicker(anchorTd, clubName, input, applyValue, opts = {}) {
     // Close any existing picker and backdrop
     document.querySelectorAll('.shift-picker, .shift-picker-backdrop').forEach(n => n.remove());
 
@@ -1131,6 +1131,41 @@
       cleanup();
       if (!isMobile) input.focus();
     };
+
+    // Pending time off approval — if this cell has a pending request,
+    // show an "Approve Time Off" button at the top of the picker.
+    if (opts.pendingTimeOffId) {
+      picker.appendChild(el('div', { class: 'shift-pick-label' }, 'Time off request'));
+      const approveRow = el('div', { class: 'shift-pick-row' });
+      approveRow.appendChild(el('button', {
+        class: 'shift-pick-btn',
+        style: 'background:#22c55e; color:#fff; border-color:#16a34a; font-weight:600;',
+        onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            const result = await api(`/api/time-off/${opts.pendingTimeOffId}/approve`, { method: 'POST' });
+            toast(`Approved — filled ${result.days_filled} day${result.days_filled !== 1 ? 's' : ''} as Req Off`);
+            cleanup();
+            await loadAllSchedules();
+            renderBody();
+          } catch (err) { toast(err.message, 'err'); }
+        },
+      }, 'Approve Time Off'));
+      approveRow.appendChild(el('button', {
+        class: 'shift-pick-btn shift-pick-reqoff',
+        onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            await api(`/api/time-off/${opts.pendingTimeOffId}/deny`, { method: 'POST' });
+            toast('Denied');
+            cleanup();
+            await loadAllSchedules();
+            renderBody();
+          } catch (err) { toast(err.message, 'err'); }
+        },
+      }, 'Deny'));
+      picker.appendChild(approveRow);
+    }
 
     // Full-shift location buttons
     picker.appendChild(el('div', { class: 'shift-pick-label' }, 'Full shift'));
@@ -1262,6 +1297,15 @@
       });
     }
 
+    // Pending time off requests — show ghosted "Req Off" on affected cells
+    // with an approve option in the picker.
+    const pendingTimeOffByCell = new Map(); // "empId:dayIdx" → request_id
+    if (data.pending_time_off) {
+      data.pending_time_off.forEach(t => {
+        pendingTimeOffByCell.set(`${t.employee_id}:${t.day_index}`, t.request_id);
+      });
+    }
+
     // Helper to build a header row (used both in thead and repeated between
     // team groups so the date columns stay labeled for Jacksonville Beach).
     const buildHeaderRow = (labelText) => {
@@ -1353,6 +1397,8 @@
           if (editable) {
             const isMobile = window.matchMedia('(max-width: 768px)').matches;
             const isPendingReview = pendingReviewCells.has(`${emp.id}:${d}`);
+            const pendingTimeOffId = pendingTimeOffByCell.get(`${emp.id}:${d}`);
+            const hasPendingTimeOff = !!pendingTimeOffId && !cellVal;
 
             // On mobile, use a div instead of an input — iOS won't zoom to a
             // div. Managers pick via the bottom-sheet picker only.
@@ -1360,7 +1406,6 @@
             if (isMobile) {
               input = el('div', { class: 'day-cell-display', 'data-cell-key': key }, cellVal);
               input.style.color = cellColorFor(cellVal);
-              // Simulate .value for apply/refresh logic below
               Object.defineProperty(input, 'value', {
                 get() { return input.textContent; },
                 set(v) { input.textContent = v || ''; },
@@ -1371,6 +1416,14 @@
               input.style.color = cellColorFor(cellVal);
             }
             if (pending || isPendingReview) input.classList.add('cell-dirty');
+
+            // Ghost overlay for pending time off requests (when cell is empty)
+            if (hasPendingTimeOff) {
+              td.classList.add('cell-pending-timeoff');
+              const ghost = el('div', { class: 'cell-ghost-timeoff' }, 'Req Off (pending)');
+              td.appendChild(ghost);
+              td.dataset.pendingTimeOffId = pendingTimeOffId;
+            }
 
             const applyValue = (val) => {
               input.value = val;
@@ -1389,10 +1442,21 @@
               input.addEventListener('input', () => applyValue(input.value));
             }
 
+            const openPicker = () => openShiftPicker(td, club.name, input, applyValue, {
+              pendingTimeOffId: hasPendingTimeOff ? pendingTimeOffId : null,
+            });
+
             // Tapping a cell opens the picker (mobile + desktop).
             input.addEventListener('click', (e) => {
               e.stopPropagation();
-              openShiftPicker(td, club.name, input, applyValue);
+              openPicker();
+            });
+            // Clicking on the ghost overlay too
+            td.addEventListener('click', (e) => {
+              if (e.target.classList && e.target.classList.contains('cell-ghost-timeoff')) {
+                e.stopPropagation();
+                openPicker();
+              }
             });
 
             // Shift picker trigger (always visible; desktop shows on hover)
@@ -1401,7 +1465,7 @@
               tabindex: '-1',
               onclick: (e) => {
                 e.stopPropagation();
-                openShiftPicker(td, club.name, input, applyValue);
+                openPicker();
               },
             }, '\u25BC');
 
