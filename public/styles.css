@@ -514,6 +514,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   padding: 8px; display: flex; flex-direction: column; gap: 6px;
   min-width: 220px; max-width: 300px;
 }
+.shift-picker-backdrop { display: none; }
 .shift-pick-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--muted); font-weight: 600; padding: 0 2px;
@@ -544,6 +545,56 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   border: 1px solid var(--border); border-radius: 5px;
   background: var(--panel);
 }
+
+/* Mobile: bottom-sheet shift picker with big tap targets */
+@media (max-width: 768px) {
+  /* Picker dropdown arrow always visible on mobile */
+  .shift-picker-btn {
+    opacity: 0.8 !important;
+    font-size: 12px;
+    padding: 8px 10px;
+    min-width: 32px; min-height: 32px;
+  }
+  /* Fullscreen dim backdrop behind the sheet */
+  .shift-picker-backdrop {
+    display: block; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4); z-index: 100;
+    animation: fadeIn 0.15s ease-out;
+  }
+  /* Bottom sheet layout */
+  .shift-picker {
+    position: fixed !important;
+    left: 0 !important; right: 0 !important; bottom: 0 !important;
+    top: auto !important;
+    max-width: 100% !important; width: 100%;
+    min-width: 0 !important;
+    border-radius: 16px 16px 0 0;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+    z-index: 101;
+    box-shadow: 0 -6px 20px rgba(0,0,0,0.2);
+    animation: slideUp 0.2s ease-out;
+    max-height: 75vh; overflow-y: auto;
+    gap: 12px;
+  }
+  .shift-pick-label { font-size: 13px; padding: 4px 2px 2px; }
+  .shift-pick-row { gap: 8px; }
+  .shift-pick-btn {
+    padding: 14px 18px;
+    font-size: 16px;
+    min-height: 48px;
+    flex: 1;
+    min-width: 80px;
+  }
+  .shift-pick-loc-tag { font-size: 14px; padding: 8px 12px; }
+  .shift-pick-other-input {
+    padding: 12px 14px;
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .shift-pick-other-wrap { gap: 8px; }
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .team-divider td, .team-divider th {
   background: #1a1a1a !important;

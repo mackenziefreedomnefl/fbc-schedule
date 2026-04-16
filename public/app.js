@@ -1074,14 +1074,28 @@
 
   // Shift picker popover — shows quick-pick buttons for common shifts
   function openShiftPicker(anchorTd, clubName, input, applyValue) {
-    // Close any existing picker
-    const existing = document.querySelector('.shift-picker');
-    if (existing) existing.remove();
+    // Close any existing picker and backdrop
+    document.querySelectorAll('.shift-picker, .shift-picker-backdrop').forEach(n => n.remove());
+
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
+    // On mobile, add a dim backdrop behind the sheet
+    let backdrop = null;
+    if (isMobile) {
+      backdrop = el('div', { class: 'shift-picker-backdrop' });
+      backdrop.addEventListener('click', () => cleanup());
+      document.body.appendChild(backdrop);
+    }
 
     const picker = el('div', { class: 'shift-picker' });
     const options = shiftOptionsForClub(clubName);
 
-    const done = (val) => { applyValue(val); picker.remove(); input.focus(); };
+    const cleanup = () => { picker.remove(); if (backdrop) backdrop.remove(); };
+    const done = (val) => {
+      applyValue(val);
+      cleanup();
+      if (!isMobile) input.focus();
+    };
 
     // Full-shift location buttons
     picker.appendChild(el('div', { class: 'shift-pick-label' }, 'Full shift'));
@@ -1175,16 +1189,24 @@
     }, 'Clear'));
     picker.appendChild(bottomRow);
 
-    anchorTd.appendChild(picker);
+    // On mobile, mount to body so it overlays as a bottom-sheet.
+    // On desktop, anchor to the cell so it drops beneath the input.
+    if (isMobile) {
+      document.body.appendChild(picker);
+    } else {
+      anchorTd.appendChild(picker);
+    }
 
-    // Close on outside click
-    const close = (e) => {
-      if (!picker.contains(e.target) && e.target !== anchorTd.querySelector('.shift-picker-btn')) {
-        picker.remove();
-        document.removeEventListener('mousedown', close);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', close), 0);
+    // Close on outside click (desktop only — backdrop handles this on mobile)
+    if (!isMobile) {
+      const close = (e) => {
+        if (!picker.contains(e.target) && e.target !== anchorTd.querySelector('.shift-picker-btn')) {
+          cleanup();
+          document.removeEventListener('mousedown', close);
+        }
+      };
+      setTimeout(() => document.addEventListener('mousedown', close), 0);
+    }
   }
 
   function buildScheduleGrid(club, data) {
@@ -1317,7 +1339,18 @@
 
             input.addEventListener('input', () => applyValue(input.value));
 
-            // Shift picker trigger
+            // On mobile, tapping the input should open the picker instead of
+            // the keyboard — managers can tap through cells quickly without
+            // constantly pinch-zooming to hit each tiny input.
+            input.addEventListener('focus', (e) => {
+              if (window.matchMedia('(max-width: 768px)').matches) {
+                e.preventDefault();
+                input.blur();
+                openShiftPicker(td, club.name, input, applyValue);
+              }
+            });
+
+            // Shift picker trigger (always visible; desktop shows on hover)
             const pickerBtn = el('button', {
               class: 'shift-picker-btn',
               tabindex: '-1',
