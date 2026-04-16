@@ -1481,15 +1481,26 @@
 
             td.appendChild(input);
             td.appendChild(pickerBtn);
-            // If a shift was removed (old had text, current is empty), show
-            // strikethrough of the old value so owners can see what was deleted.
-            // Only visible to signed-in users, not staff.
-            if (isPendingReview && !cellVal) {
-              const info = pendingReviewInfo.get(`${emp.id}:${d}`);
-              if (info && info.old_value) {
-                const strike = el('div', { class: 'cell-removed' }, info.old_value);
+            // Show change badges + before/after info for cells that changed
+            // since the last review.
+            if (isPendingReview) {
+              const info = pendingReviewInfo.get(`${emp.id}:${d}`) || {};
+              const oldV = info.old_value || '';
+              const newV = info.new_value || '';
+              let changeKind = 'changed';
+              if (!oldV && newV) changeKind = 'added';
+              else if (oldV && !newV) changeKind = 'removed';
+              td.classList.add('cell-change-' + changeKind);
+              // Show the old value inline for removed/changed cells
+              if (oldV && (!cellVal || changeKind === 'changed')) {
+                const strike = el('div', { class: 'cell-removed' }, 'was: ' + oldV);
                 td.appendChild(strike);
               }
+              // Corner badge: + (added), - (removed), ~ (changed)
+              const badgeChar = changeKind === 'added' ? '+'
+                : changeKind === 'removed' ? '\u2212' : '~';
+              const badge = el('div', { class: 'cell-change-badge cell-change-badge-' + changeKind }, badgeChar);
+              td.appendChild(badge);
             }
             // Owner-only: small approve button on amber cells.
             // When approved, the strikethrough (removed shift) disappears.
@@ -1675,7 +1686,25 @@
 
   async function openTimeOffPanel() {
     const content = el('div');
-    content.appendChild(el('h2', {}, 'Time Off Requests'));
+    const titleRow = el('div', { style: 'display:flex; justify-content:space-between; align-items:center;' });
+    titleRow.appendChild(el('h2', { style: 'margin:0;' }, 'Time Off Requests'));
+    if (isOwner()) {
+      titleRow.appendChild(el('button', {
+        class: 'ghost',
+        style: 'font-size:11px;',
+        onclick: async () => {
+          if (!confirm('Reset ALL approved requests back to pending? Auto-filled Req Off cells will be cleared.')) return;
+          try {
+            const result = await api('/api/time-off/reset-all-approved', { method: 'POST' });
+            toast(`Reset ${result.reset_count} requests, cleared ${result.cells_cleared} cells`);
+            refreshList();
+            await loadAllSchedules();
+            renderBody();
+          } catch (err) { toast(err.message, 'err'); }
+        },
+      }, 'Reset All Approved'));
+    }
+    content.appendChild(titleRow);
 
     // Add new request form
     const addWrap = el('div', { class: 'timeoff-add' });
@@ -1799,6 +1828,22 @@
                 } catch (err) { toast(err.message, 'err'); }
               },
             }, 'Deny'));
+          } else if (r.status === 'approved' || r.status === 'denied') {
+            // Reset back to pending
+            actions.appendChild(el('button', {
+              class: 'ghost',
+              style: 'font-size:11px; padding:3px 10px;',
+              onclick: async () => {
+                if (!confirm('Reset to Pending? If it was approved, the auto-filled Req Off cells will be cleared.')) return;
+                try {
+                  const result = await api(`/api/time-off/${r.id}/reset`, { method: 'POST' });
+                  toast(`Reset to pending${result.cells_cleared ? ` \u2014 cleared ${result.cells_cleared} cell${result.cells_cleared !== 1 ? 's' : ''}` : ''}`);
+                  refreshList();
+                  await loadAllSchedules();
+                  renderBody();
+                } catch (err) { toast(err.message, 'err'); }
+              },
+            }, 'Reset to Pending'));
           }
 
           // Edit button

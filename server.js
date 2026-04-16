@@ -1249,6 +1249,111 @@ app.post('/api/time-off/:id/deny', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Reset a time off request back to pending — also clears any "Req Off"
+// that was auto-filled when it was approved
+app.post('/api/time-off/:id/reset', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const reqId = Number(req.params.id);
+  const { rows } = await pool.query(
+    `SELECT t.*, e.name AS employee_name FROM time_off_requests t
+     JOIN employees e ON e.id = t.employee_id WHERE t.id = $1`, [reqId]);
+  if (!rows[0]) return res.status(404).json({ error: 'request not found' });
+  const tor = rows[0];
+  const wasApproved = tor.status === 'approved';
+
+  await pool.query(
+    `UPDATE time_off_requests SET status = 'pending', resolved_by = NULL, resolved_at = NULL WHERE id = $1`,
+    [reqId]
+  );
+
+  // If it was approved, clear the Req Off cells that were auto-filled
+  let cleared = 0;
+  if (wasApproved) {
+    const start = new Date((tor.start_date instanceof Date
+      ? tor.start_date.toISOString().slice(0, 10)
+      : tor.start_date) + 'T00:00:00Z');
+    const end = new Date((tor.end_date instanceof Date
+      ? tor.end_date.toISOString().slice(0, 10)
+      : tor.end_date) + 'T00:00:00Z');
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const weekStart = mondayOf(d.toISOString().slice(0, 10));
+      const dayOfWeek = d.getUTCDay();
+      const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const { rows: schedRows } = await pool.query(
+        'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2',
+        [tor.club_id, weekStart]
+      );
+      if (!schedRows[0]) continue;
+      const scheduleId = schedRows[0].id;
+      // Only clear if it's currently "Req Off" (don't clear if manager changed it)
+      const result = await pool.query(
+        `UPDATE shifts SET shift_text = ''
+          WHERE schedule_id = $1 AND employee_id = $2 AND day_index = $3
+            AND shift_text = 'Req Off'`,
+        [scheduleId, tor.employee_id, dayIndex]
+      );
+      cleared += result.rowCount;
+    }
+  }
+
+  await audit(user, 'time_off_reset', tor.club_id, null, {
+    employee_id: tor.employee_id, employee_name: tor.employee_name,
+    start_date: tor.start_date instanceof Date ? tor.start_date.toISOString().slice(0, 10) : tor.start_date,
+    end_date: tor.end_date instanceof Date ? tor.end_date.toISOString().slice(0, 10) : tor.end_date,
+    was_approved: wasApproved, cells_cleared: cleared,
+  });
+  res.json({ ok: true, cells_cleared: cleared });
+}));
+
+// Bulk reset all approved requests back to pending (owner-only helper)
+app.post('/api/time-off/reset-all-approved', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { rows } = await pool.query(
+    `SELECT id FROM time_off_requests WHERE status = 'approved'`
+  );
+  let totalCleared = 0;
+  for (const r of rows) {
+    const { rows: torRows } = await pool.query(
+      `SELECT t.*, e.name AS employee_name FROM time_off_requests t
+       JOIN employees e ON e.id = t.employee_id WHERE t.id = $1`, [r.id]);
+    const tor = torRows[0];
+    if (!tor) continue;
+    await pool.query(
+      `UPDATE time_off_requests SET status = 'pending', resolved_by = NULL, resolved_at = NULL WHERE id = $1`,
+      [r.id]
+    );
+    const start = new Date((tor.start_date instanceof Date
+      ? tor.start_date.toISOString().slice(0, 10)
+      : tor.start_date) + 'T00:00:00Z');
+    const end = new Date((tor.end_date instanceof Date
+      ? tor.end_date.toISOString().slice(0, 10)
+      : tor.end_date) + 'T00:00:00Z');
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const weekStart = mondayOf(d.toISOString().slice(0, 10));
+      const dayOfWeek = d.getUTCDay();
+      const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const { rows: schedRows } = await pool.query(
+        'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2',
+        [tor.club_id, weekStart]
+      );
+      if (!schedRows[0]) continue;
+      const result = await pool.query(
+        `UPDATE shifts SET shift_text = ''
+          WHERE schedule_id = $1 AND employee_id = $2 AND day_index = $3
+            AND shift_text = 'Req Off'`,
+        [schedRows[0].id, tor.employee_id, dayIndex]
+      );
+      totalCleared += result.rowCount;
+    }
+  }
+  await audit(user, 'time_off_reset_all', null, null, {
+    count: rows.length, cells_cleared: totalCleared,
+  });
+  res.json({ ok: true, reset_count: rows.length, cells_cleared: totalCleared });
+}));
+
 // Edit a time off request
 app.patch('/api/time-off/:id', ah(async (req, res) => {
   const user = await loadUser(req);
