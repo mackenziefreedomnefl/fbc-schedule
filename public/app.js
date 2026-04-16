@@ -595,7 +595,6 @@
       }
 
       menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
-      menu.appendChild(el('button', { onclick: openRecentActivityPanel }, 'Recent Activity'));
       menu.appendChild(el('button', { onclick: openChangePasswordModal }, 'Account'));
       menu.appendChild(el('button', {
         onclick: async () => {
@@ -907,6 +906,12 @@
         class: 'primary draft-save', disabled: !clubCount,
         onclick: () => saveDraftForClub(club.id),
       }, 'Save Draft'));
+
+      // Recent Activity — quick access for undo
+      draftBar.appendChild(el('button', {
+        class: 'ghost',
+        onclick: () => openRecentActivityPanel(),
+      }, 'Recent Activity'));
 
       // Clear Schedule — pushed to far right
       draftBar.appendChild(el('div', { class: 'spacer' }));
