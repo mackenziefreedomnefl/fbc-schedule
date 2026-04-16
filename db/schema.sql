@@ -129,8 +129,10 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  resolved_at TIMESTAMPTZ
+  resolved_at TIMESTAMPTZ,
+  is_pto BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS is_pto BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS time_off_requests_employee_idx ON time_off_requests(employee_id);
 CREATE INDEX IF NOT EXISTS time_off_requests_status_idx ON time_off_requests(status);
 

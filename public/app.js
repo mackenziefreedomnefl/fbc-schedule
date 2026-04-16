@@ -1423,7 +1423,6 @@
     const addWrap = el('div', { class: 'timeoff-add' });
     addWrap.appendChild(el('div', { class: 'timeoff-add-label' }, 'Add Request'));
 
-    // Employee picker
     const empSelect = el('select', { class: 'timeoff-select' });
     empSelect.appendChild(el('option', { value: '' }, 'Select employee...'));
     for (const club of state.clubs) {
@@ -1440,6 +1439,8 @@
     const startInput = el('input', { type: 'date', class: 'timeoff-date' });
     const endInput = el('input', { type: 'date', class: 'timeoff-date' });
     const noteInput = el('input', { type: 'text', placeholder: 'Note (optional)', class: 'timeoff-note' });
+    const ptoCheck = el('input', { type: 'checkbox', id: 'add-pto-check' });
+    const ptoLabel = el('label', { for: 'add-pto-check', class: 'timeoff-pto-label' }, 'PTO (log in ADP)');
 
     const addRow = el('div', { class: 'timeoff-add-row' });
     addRow.appendChild(empSelect);
@@ -1448,6 +1449,10 @@
     addRow.appendChild(el('span', { class: 'muted' }, 'To'));
     addRow.appendChild(endInput);
     addRow.appendChild(noteInput);
+    const ptoWrap = el('div', { class: 'timeoff-pto-wrap' });
+    ptoWrap.appendChild(ptoCheck);
+    ptoWrap.appendChild(ptoLabel);
+    addRow.appendChild(ptoWrap);
     addRow.appendChild(el('button', {
       class: 'primary',
       onclick: async () => {
@@ -1462,13 +1467,12 @@
               start_date: startInput.value,
               end_date: endInput.value,
               note: noteInput.value,
+              is_pto: ptoCheck.checked,
             },
           });
           toast('Request added');
-          empSelect.value = '';
-          startInput.value = '';
-          endInput.value = '';
-          noteInput.value = '';
+          empSelect.value = ''; startInput.value = ''; endInput.value = '';
+          noteInput.value = ''; ptoCheck.checked = false;
           refreshList();
         } catch (err) { toast(err.message, 'err'); }
       },
@@ -1476,7 +1480,6 @@
     addWrap.appendChild(addRow);
     content.appendChild(addWrap);
 
-    // Request list
     const listWrap = el('div', { class: 'timeoff-list' });
     content.appendChild(listWrap);
 
@@ -1488,7 +1491,6 @@
         return;
       }
 
-      // Group: pending first, then approved, then denied
       const groups = { pending: [], approved: [], denied: [] };
       requests.forEach(r => { (groups[r.status] || groups.pending).push(r); });
 
@@ -1500,26 +1502,35 @@
 
         items.forEach(r => {
           const row = el('div', { class: 'timeoff-row timeoff-' + r.status });
+
+          // PTO badge
+          if (r.is_pto) {
+            row.appendChild(el('span', { class: 'timeoff-pto-badge' }, 'PTO'));
+          }
+
           row.appendChild(el('span', { class: 'timeoff-name' }, r.employee_name));
           row.appendChild(el('span', { class: 'timeoff-club muted' }, r.club_name));
-          row.appendChild(el('span', { class: 'timeoff-dates' }, `${r.start_date} to ${r.end_date}`));
+          row.appendChild(el('span', { class: 'timeoff-dates' },
+            r.start_date === r.end_date ? r.start_date : `${r.start_date} to ${r.end_date}`));
           if (r.note) row.appendChild(el('span', { class: 'timeoff-note-text muted' }, r.note));
 
+          const actions = el('div', { class: 'timeoff-actions' });
+
           if (r.status === 'pending') {
-            row.appendChild(el('button', {
+            actions.appendChild(el('button', {
               class: 'primary',
               style: 'font-size:11px; padding:3px 10px;',
               onclick: async () => {
                 try {
                   const result = await api(`/api/time-off/${r.id}/approve`, { method: 'POST' });
-                  toast(`Approved — filled ${result.days_filled} day${result.days_filled !== 1 ? 's' : ''} as Req Off`);
+                  toast(`Approved \u2014 filled ${result.days_filled} day${result.days_filled !== 1 ? 's' : ''} as Req Off`);
                   refreshList();
                   await loadAllSchedules();
                   renderBody();
                 } catch (err) { toast(err.message, 'err'); }
               },
             }, 'Approve'));
-            row.appendChild(el('button', {
+            actions.appendChild(el('button', {
               class: 'ghost danger',
               style: 'font-size:11px; padding:3px 10px;',
               onclick: async () => {
@@ -1532,17 +1543,28 @@
             }, 'Deny'));
           }
 
-          row.appendChild(el('button', {
+          // Edit button
+          actions.appendChild(el('button', {
             class: 'ghost',
             style: 'font-size:11px; padding:3px 8px;',
+            onclick: () => openEditTimeOff(r, refreshList),
+          }, 'Edit'));
+
+          // Delete button
+          actions.appendChild(el('button', {
+            class: 'ghost danger',
+            style: 'font-size:11px; padding:3px 8px;',
             onclick: async () => {
+              if (!confirm(`Delete time off for ${r.employee_name} (${r.start_date})?`)) return;
               try {
                 await api(`/api/time-off/${r.id}`, { method: 'DELETE' });
+                toast('Deleted');
                 refreshList();
               } catch (err) { toast(err.message, 'err'); }
             },
-          }, '\u2715'));
+          }, 'Delete'));
 
+          row.appendChild(actions);
           listWrap.appendChild(row);
         });
       }
@@ -1555,6 +1577,61 @@
 
     openModal(content, { wide: true });
     refreshList();
+  }
+
+  function openEditTimeOff(r, onSave) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Edit Time Off \u2014 ${r.employee_name}`));
+
+    const startIn = el('input', { type: 'date', value: r.start_date });
+    const endIn = el('input', { type: 'date', value: r.end_date });
+    const noteIn = el('input', { type: 'text', value: r.note || '', placeholder: 'Note (optional)' });
+    const ptoIn = el('input', { type: 'checkbox' });
+    ptoIn.checked = !!r.is_pto;
+
+    const form = el('div', { style: 'display:flex; flex-direction:column; gap:10px; margin:12px 0;' });
+    const dateRow = el('div', { style: 'display:flex; gap:8px; align-items:center;' });
+    dateRow.appendChild(el('span', {}, 'From'));
+    dateRow.appendChild(startIn);
+    dateRow.appendChild(el('span', {}, 'To'));
+    dateRow.appendChild(endIn);
+    form.appendChild(dateRow);
+    form.appendChild(noteIn);
+    const ptoRow = el('div', { style: 'display:flex; gap:6px; align-items:center;' });
+    ptoRow.appendChild(ptoIn);
+    ptoRow.appendChild(el('label', {}, 'PTO (log in ADP)'));
+    form.appendChild(ptoRow);
+    content.appendChild(form);
+
+    const btnRow = el('div', { style: 'display:flex; gap:8px;' });
+    btnRow.appendChild(el('button', {
+      class: 'primary',
+      onclick: async () => {
+        try {
+          await api(`/api/time-off/${r.id}`, {
+            method: 'PATCH',
+            body: {
+              start_date: startIn.value,
+              end_date: endIn.value,
+              note: noteIn.value,
+              is_pto: ptoIn.checked,
+            },
+          });
+          toast('Updated');
+          closeModal();
+          onSave();
+          // Re-open the time off panel
+          openTimeOffPanel();
+        } catch (err) { toast(err.message, 'err'); }
+      },
+    }, 'Save'));
+    btnRow.appendChild(el('button', {
+      class: 'ghost',
+      onclick: () => { closeModal(); openTimeOffPanel(); },
+    }, 'Cancel'));
+    content.appendChild(btnRow);
+
+    openModal(content);
   }
 
   // -------- Import Schedule from Image --------
