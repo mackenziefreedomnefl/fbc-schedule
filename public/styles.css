@@ -165,14 +165,44 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   background: rgba(245, 158, 11, 0.12) !important;
   border-left: 2px solid var(--warn) !important;
 }
+/* Change indicators: added / removed / changed */
+.day-cell.cell-change-added {
+  background: rgba(34, 197, 94, 0.12) !important;
+  border-left: 3px solid var(--ok) !important;
+}
+.day-cell.cell-change-removed {
+  background: rgba(229, 72, 77, 0.12) !important;
+  border-left: 3px solid var(--danger) !important;
+}
+.day-cell.cell-change-changed {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-left: 3px solid var(--warn) !important;
+}
+.cell-change-badge {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  color: #fff;
+  pointer-events: none;
+  z-index: 1;
+}
+.cell-change-badge-added { background: var(--ok); }
+.cell-change-badge-removed { background: var(--danger); }
+.cell-change-badge-changed { background: var(--warn); }
 /* Strikethrough showing what was removed — visible to signed-in users only */
 .cell-removed {
   text-decoration: line-through;
   color: var(--danger);
-  font-size: 11px;
+  font-size: 10px;
   opacity: 0.7;
   padding: 0 8px 2px;
   pointer-events: none;
+  font-style: italic;
 }
 
 .day-cell { position: relative; }
