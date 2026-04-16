@@ -811,6 +811,17 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   .data-table th, .data-table td { padding: 6px 8px; }
 }
 
+/* Import bar */
+.import-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 18px; margin-bottom: 16px;
+  background: var(--panel); border: 2px dashed var(--accent);
+  border-radius: 10px;
+}
+.import-schedule-btn {
+  font-size: 14px !important; padding: 10px 20px !important;
+}
+
 /* Club header with inline nav */
 .club-header {
   display: flex;
