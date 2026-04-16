@@ -241,6 +241,9 @@ async function main() {
     // Import specific schedule data from screenshots (one-shot)
     await importScheduleData(pool);
 
+    // Seed time off requests (one-shot)
+    await seedTimeOffRequests(pool);
+
     console.log('[migrate] done.');
   } catch (err) {
     console.error('[migrate] failed:', err);
@@ -688,6 +691,70 @@ async function importScheduleData(pool) {
     `INSERT INTO app_state (key, value) VALUES ('import_schedule_v4', NOW()::text)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`);
   console.log('[migrate] schedule import complete');
+}
+
+// ---------- seed time off requests ----------
+const TIME_OFF_REQUESTS = [
+  // April 2026
+  { name: 'Jaron Firesheets', start: '2026-04-23', end: '2026-04-26' },
+  { name: 'Dustyn Burd', start: '2026-04-23', end: '2026-04-23' },
+  // May 2026
+  { name: 'Julia Catlett', start: '2026-04-30', end: '2026-05-03' },
+  { name: 'Bill Harris', start: '2026-05-01', end: '2026-05-03' },
+  { name: 'Alec Murino', start: '2026-05-01', end: '2026-05-03' },
+  { name: 'Gavin Carillo', start: '2026-05-03', end: '2026-05-12' },
+  { name: 'Alexander Vida', start: '2026-05-07', end: '2026-05-09' },
+  { name: 'Jack Fant', start: '2026-05-10', end: '2026-05-10', note: '3 out' },
+  { name: 'Delaney Holcomb', start: '2026-05-10', end: '2026-05-10' },
+  { name: 'Delaney Holcomb', start: '2026-05-23', end: '2026-05-23' },
+  { name: 'Aiden Rock', start: '2026-05-10', end: '2026-05-10' },
+  { name: 'Dustyn Burd', start: '2026-05-22', end: '2026-05-24' },
+  // June 2026
+  { name: 'Julia Catlett', start: '2026-06-05', end: '2026-06-05' },
+  { name: 'Austin Corzo', start: '2026-06-14', end: '2026-06-21' },
+  { name: 'Brandon Lanier', start: '2026-06-16', end: '2026-06-17' },
+  { name: 'Brandon Lanier', start: '2026-06-23', end: '2026-06-24' },
+];
+
+async function seedTimeOffRequests(pool) {
+  const { rows: flagRows } = await pool.query(
+    "SELECT value FROM app_state WHERE key = 'timeoff_seeded_v1'"
+  );
+  if (flagRows[0]) return;
+
+  console.log('[migrate] seeding time off requests...');
+  let inserted = 0;
+
+  for (const req of TIME_OFF_REQUESTS) {
+    // Find employee by name (search all clubs)
+    const { rows: empRows } = await pool.query(
+      'SELECT id, club_id FROM employees WHERE name = $1 LIMIT 1', [req.name]
+    );
+    if (!empRows[0]) {
+      console.log(`[migrate] time off: employee "${req.name}" not found, skipping`);
+      continue;
+    }
+    const emp = empRows[0];
+    // Check for duplicate
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM time_off_requests
+        WHERE employee_id = $1 AND start_date = $2 AND end_date = $3`,
+      [emp.id, req.start, req.end]
+    );
+    if (existing[0]) continue;
+    await pool.query(
+      `INSERT INTO time_off_requests (employee_id, club_id, start_date, end_date, note, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')`,
+      [emp.id, emp.club_id, req.start, req.end, req.note || '']
+    );
+    inserted++;
+  }
+
+  await pool.query(
+    `INSERT INTO app_state (key, value) VALUES ('timeoff_seeded_v1', NOW()::text)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+  );
+  console.log(`[migrate] seeded ${inserted} time off requests`);
 }
 
 main();
