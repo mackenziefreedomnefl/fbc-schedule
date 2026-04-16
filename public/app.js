@@ -214,7 +214,18 @@
   }
 
   // ids must include club_id so undo/redo/save scope per-club
+  let lastCurrentWeekAlert = 0; // timestamp of last alert
+
   function recordEdit(key, ids, oldVal, newVal, serverVal) {
+    // Alert when editing the current week schedule (not future weeks)
+    if (state.tab === 'current' && (state.weekOffset || 0) === 0) {
+      const now = Date.now();
+      if (now - lastCurrentWeekAlert > 5 * 60 * 1000) { // 5 minutes
+        lastCurrentWeekAlert = now;
+        alert('You are making changes to the current week\u2019s schedule. Staff may already be working from this schedule.');
+      }
+    }
+
     state.undoStack.push({ key, ...ids, old_value: oldVal, new_value: newVal, server_value: serverVal });
     state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== Number(ids.club_id));
     if (newVal === serverVal) {
