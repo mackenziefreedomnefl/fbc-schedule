@@ -1274,8 +1274,9 @@ Rules:
   }
 }));
 
-// ---------- password reset (no auth required) ----------
+// ---------- password reset / owner create (no auth required) ----------
 // Visit /api/reset-password?email=you@email.com&new_password=newpass&token=SECRET
+// Creates an owner account if one doesn't exist, otherwise resets the password.
 // Token must match RESET_TOKEN env var (or SESSION_SECRET as fallback)
 app.get('/api/reset-password', ah(async (req, res) => {
   const { email, new_password, token } = req.query;
@@ -1289,13 +1290,18 @@ app.get('/api/reset-password', ah(async (req, res) => {
   if (new_password.length < 4) {
     return res.status(400).json({ error: 'password must be at least 4 characters' });
   }
-  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
-  if (!rows[0]) {
-    return res.status(404).json({ error: 'user not found', hint: 'Check OWNER_EMAILS env var' });
-  }
+  const normalized = email.toLowerCase().trim();
   const hash = await bcrypt.hash(new_password, 10);
-  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, rows[0].id]);
-  res.json({ ok: true, message: `Password reset for ${email}` });
+  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [normalized]);
+  if (rows[0]) {
+    await pool.query('UPDATE users SET password_hash = $1, role = \'owner\' WHERE id = $2', [hash, rows[0].id]);
+    return res.json({ ok: true, message: `Password reset for ${normalized}`, action: 'updated' });
+  }
+  await pool.query(
+    "INSERT INTO users (email, password_hash, role, name) VALUES ($1, $2, 'owner', $3)",
+    [normalized, hash, normalized.split('@')[0]]
+  );
+  res.json({ ok: true, message: `Owner account created for ${normalized}`, action: 'created' });
 }));
 
 // ---------- health ----------
