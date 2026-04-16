@@ -217,8 +217,13 @@
   let lastCurrentWeekAlert = 0; // timestamp of last alert
 
   function recordEdit(key, ids, oldVal, newVal, serverVal) {
-    // Alert when editing the current week schedule (not future weeks)
-    if (state.tab === 'current' && (state.weekOffset || 0) === 0) {
+    // If the value is being set back to the server value, it's not really a change
+    const isRealChange = newVal !== serverVal;
+
+    // Alert when editing the current week schedule (not future weeks).
+    // Only fire for real changes — clearing a cell back to its original
+    // value shouldn't trigger the alert.
+    if (isRealChange && state.tab === 'current' && (state.weekOffset || 0) === 0) {
       const now = Date.now();
       if (now - lastCurrentWeekAlert > 5 * 60 * 1000) { // 5 minutes
         lastCurrentWeekAlert = now;
@@ -228,7 +233,7 @@
 
     state.undoStack.push({ key, ...ids, old_value: oldVal, new_value: newVal, server_value: serverVal });
     state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== Number(ids.club_id));
-    if (newVal === serverVal) {
+    if (!isRealChange) {
       state.pendingChanges.delete(key);
     } else {
       state.pendingChanges.set(key, { ...ids, shift_text: newVal, server_value: serverVal });
@@ -1323,15 +1328,24 @@
           const cellVal = pending ? pending.shift_text : serverVal;
           if (editable) {
             const isMobile = window.matchMedia('(max-width: 768px)').matches;
-            // On mobile, inputs are readonly — prevents iOS auto-zoom on tap.
-            // Managers pick shifts via the picker sheet instead of typing.
-            const inputProps = { type: 'text', 'data-cell-key': key };
-            if (isMobile) inputProps.readonly = 'readonly';
-            const input = el('input', inputProps);
-            input.value = cellVal;
-            input.style.color = cellColorFor(cellVal);
-            // Amber if locally edited OR edited since last review
             const isPendingReview = pendingReviewCells.has(`${emp.id}:${d}`);
+
+            // On mobile, use a div instead of an input — iOS won't zoom to a
+            // div. Managers pick via the bottom-sheet picker only.
+            let input;
+            if (isMobile) {
+              input = el('div', { class: 'day-cell-display', 'data-cell-key': key }, cellVal);
+              input.style.color = cellColorFor(cellVal);
+              // Simulate .value for apply/refresh logic below
+              Object.defineProperty(input, 'value', {
+                get() { return input.textContent; },
+                set(v) { input.textContent = v || ''; },
+              });
+            } else {
+              input = el('input', { type: 'text', 'data-cell-key': key });
+              input.value = cellVal;
+              input.style.color = cellColorFor(cellVal);
+            }
             if (pending || isPendingReview) input.classList.add('cell-dirty');
 
             const applyValue = (val) => {
@@ -1344,16 +1358,14 @@
                 prevVal, val, serverVal);
               input.classList.toggle('cell-dirty',
                 val !== serverVal || isPendingReview);
-              // Refresh auto-calculated totals
               refreshTotals(club, data);
             };
 
-            input.addEventListener('input', () => applyValue(input.value));
+            if (!isMobile) {
+              input.addEventListener('input', () => applyValue(input.value));
+            }
 
-            // Clicking in a cell always opens the picker (mobile + desktop).
-            // On mobile the input is readonly so no keyboard appears.
-            // On desktop the input is still editable, but the picker also opens
-            // so managers can pick or type freely.
+            // Tapping a cell opens the picker (mobile + desktop).
             input.addEventListener('click', (e) => {
               e.stopPropagation();
               openShiftPicker(td, club.name, input, applyValue);

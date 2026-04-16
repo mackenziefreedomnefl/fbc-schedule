@@ -495,6 +495,15 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   padding: 8px 10px; border-radius: 0;
 }
 .schedule-table td.day-cell input:focus { background: rgba(76, 139, 245, 0.12); }
+.schedule-table td.day-cell .day-cell-display {
+  width: 100%; padding: 8px 10px; cursor: pointer;
+  min-height: 32px; color: var(--text);
+  -webkit-tap-highlight-color: rgba(37, 99, 235, 0.2);
+  user-select: none;
+}
+.schedule-table td.day-cell .day-cell-display.cell-dirty {
+  background: rgba(245, 158, 11, 0.15);
+}
 
 /* Shift picker */
 .shift-picker-btn {
@@ -810,10 +819,12 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   }
   /* Team colors removed — using black dividers + zebra striping */
   .schedule-table td.day-cell { min-width: 88px; }
-  .schedule-table td.day-cell input {
-    padding: 6px 8px;
+  .schedule-table td.day-cell input,
+  .schedule-table td.day-cell .day-cell-display {
+    padding: 8px 10px;
     /* 16px prevents iOS Safari from zooming in on focus */
     font-size: 16px;
+    min-height: 40px;
   }
   .schedule-table .day-readonly { font-size: 13px; padding: 6px 8px; }
 
