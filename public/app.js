@@ -360,14 +360,34 @@
   function updateDraftToolbar() {
     document.querySelectorAll('.draft-toolbar').forEach(bar => {
       const clubId = Number(bar.getAttribute('data-club-id'));
+      const rs = bar.getAttribute('data-review-status') || 'draft';
       const count = countForClub(clubId);
       const badge = bar.querySelector('.review-badge');
       const saveBtn = bar.querySelector('.draft-save');
       const undoBtn = bar.querySelector('.draft-undo');
       const redoBtn = bar.querySelector('.draft-redo');
-      if (badge && count) {
-        badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
-        badge.className = 'review-badge draft';
+      if (badge) {
+        if (count) {
+          badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
+          badge.className = 'review-badge draft';
+        } else {
+          // Restore the original review-status-based text
+          let text, cls;
+          if (rs === 'approved') {
+            text = 'Approved'; cls = 'review-badge sent';
+          } else if (rs === 'submitted') {
+            text = isOwner() ? 'Changes awaiting your approval' : 'Sent for review — awaiting approval';
+            cls = 'review-badge pending';
+          } else if (rs === 'changes_pending') {
+            text = isOwner() ? 'New changes since last approval' : 'Changes since last approval — send for review';
+            cls = 'review-badge pending';
+          } else {
+            text = isOwner() ? 'Draft — not yet submitted' : 'Draft — not yet sent for review';
+            cls = 'review-badge draft';
+          }
+          badge.textContent = text;
+          badge.className = cls;
+        }
       }
       if (saveBtn) saveBtn.disabled = !count;
       if (undoBtn) undoBtn.disabled = !undoCountForClub(clubId);
@@ -875,11 +895,15 @@
     // so the user doesn't have to scroll back up to save.
     // Hidden when viewing past weeks (read-only).
     if (isLoggedIn() && !isPastView()) {
-      const draftBar = el('div', { class: 'draft-toolbar', 'data-club-id': club.id });
+      const rs = data ? (data.review_status || 'draft') : 'draft';
+      const draftBar = el('div', {
+        class: 'draft-toolbar',
+        'data-club-id': club.id,
+        'data-review-status': rs,
+      });
       const clubCount = countForClub(club.id);
       const clubUndo = undoCountForClub(club.id);
       const clubRedo = redoCountForClub(club.id);
-      const rs = data ? (data.review_status || 'draft') : 'draft';
 
       let statusText, statusClass;
       if (clubCount) {
@@ -2024,7 +2048,7 @@
     content.appendChild(el('h2', {}, 'Sign in'));
     content.appendChild(el('p', { class: 'muted' }, 'Enter your manager or owner credentials.'));
 
-    const emailIn = el('input', { type: 'email', placeholder: 'email', autocomplete: 'email' });
+    const emailIn = el('input', { type: 'text', placeholder: 'email or username', autocomplete: 'username' });
     const passIn = el('input', { type: 'password', placeholder: 'password', autocomplete: 'current-password' });
     const errDiv = el('div', { class: 'error' });
 
