@@ -470,12 +470,15 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   text-align: left;
   vertical-align: middle;
 }
-/* Zebra striping */
+/* Zebra striping — white and dark grey alternating */
+.schedule-table tbody tr:nth-child(odd):not(.team-divider):not(.repeat-header) {
+  background: #ffffff;
+}
 .schedule-table tbody tr:nth-child(even):not(.team-divider):not(.repeat-header) {
-  background: rgba(0, 0, 0, 0.03);
+  background: #e8eaed;
 }
 .schedule-table tbody tr:nth-child(even):not(.team-divider):not(.repeat-header) td.day-cell input {
-  background: rgba(0, 0, 0, 0.02);
+  background: transparent;
 }
 .schedule-table th {
   background: var(--panel-2);
@@ -542,21 +545,16 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   background: var(--panel);
 }
 
-.team-divider td {
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 12px;
+.team-divider td, .team-divider th {
+  background: #1a1a1a !important;
+  color: #ffffff !important;
+  font-size: 13px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 8px 10px;
+  letter-spacing: 0.06em;
+  padding: 10px 12px;
+  border-bottom: none;
 }
-
-.row-team-main { background: var(--team-main); }
-.row-team-main td.name-cell { border-left: 3px solid var(--team-main-bar); }
-.row-team-2 { background: var(--team-2); }
-.row-team-2 td.name-cell { border-left: 3px solid var(--team-2-bar); }
-.row-team-shared { background: var(--team-shared); }
-.row-team-shared td.name-cell { border-left: 3px solid var(--team-shared-bar); }
 
 .notes {
   margin-top: 16px;
@@ -760,9 +758,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     background: var(--panel);
     z-index: 2;
   }
-  .schedule-table tr.row-team-main td.name-cell { background: #dce8f8; }
-  .schedule-table tr.row-team-2 td.name-cell   { background: #e8ddf5; }
-  .schedule-table tr.row-team-shared td.name-cell { background: #d5f0df; }
+  /* Team colors removed — using black dividers + zebra striping */
   .schedule-table td.day-cell { min-width: 88px; }
   .schedule-table td.day-cell input {
     padding: 6px 8px;
@@ -856,9 +852,12 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   font-size: 11px !important;
   padding: 1px 8px !important;
   margin-left: 10px;
-  opacity: 0.6;
+  color: #fff !important;
+  border-color: rgba(255,255,255,0.3) !important;
+  background: transparent !important;
+  opacity: 0.7;
 }
-.team-edit-btn:hover { opacity: 1; }
+.team-edit-btn:hover { opacity: 1; border-color: #fff !important; }
 
 /* Past week navigation */
 .week-nav-btn {
