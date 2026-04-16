@@ -1274,6 +1274,30 @@ Rules:
   }
 }));
 
+// ---------- password reset (no auth required) ----------
+// Visit /api/reset-password?email=you@email.com&new_password=newpass&token=SECRET
+// Token must match RESET_TOKEN env var (or SESSION_SECRET as fallback)
+app.get('/api/reset-password', ah(async (req, res) => {
+  const { email, new_password, token } = req.query;
+  const validToken = process.env.RESET_TOKEN || process.env.SESSION_SECRET || '';
+  if (!token || !validToken || token !== validToken) {
+    return res.status(403).json({ error: 'invalid token' });
+  }
+  if (!email || !new_password) {
+    return res.status(400).json({ error: 'email and new_password required as query params' });
+  }
+  if (new_password.length < 4) {
+    return res.status(400).json({ error: 'password must be at least 4 characters' });
+  }
+  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+  if (!rows[0]) {
+    return res.status(404).json({ error: 'user not found', hint: 'Check OWNER_EMAILS env var' });
+  }
+  const hash = await bcrypt.hash(new_password, 10);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, rows[0].id]);
+  res.json({ ok: true, message: `Password reset for ${email}` });
+}));
+
 // ---------- health ----------
 // ---------- export / backup ----------
 // Full JSON backup of all data (owner-only)
