@@ -1044,23 +1044,25 @@ app.post('/api/parse-schedule', scheduleUpload.single('image'), ah(async (req, r
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
   if (!req.file) return res.status(400).json({ error: 'image or PDF required' });
 
-  const clubId = Number(req.body.club_id);
-  if (!clubId) return res.status(400).json({ error: 'club_id required' });
+  // Get all clubs and their employees
+  const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
+  const clubData = {};
+  for (const club of clubs) {
+    const { rows: emps } = await pool.query(
+      'SELECT name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id',
+      [club.id]
+    );
+    clubData[club.name] = { id: club.id, employees: emps.map(e => e.name) };
+  }
 
-  // Get active employees for this club to help the AI match names
-  const { rows: emps } = await pool.query(
-    'SELECT name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id',
-    [clubId]
-  );
-  const { rows: clubRow } = await pool.query('SELECT name FROM clubs WHERE id = $1', [clubId]);
-  const clubName = clubRow[0] ? clubRow[0].name : '';
-  const empNames = emps.map(e => e.name);
-
-  // Build the AI prompt
   const mediaType = req.file.mimetype === 'application/pdf' ? 'application/pdf'
     : req.file.mimetype.startsWith('image/') ? req.file.mimetype : 'image/jpeg';
   const sourceType = req.file.mimetype === 'application/pdf' ? 'document' : 'image';
   const base64 = req.file.buffer.toString('base64');
+
+  const clubList = Object.entries(clubData).map(([name, d]) =>
+    `"${name}": employees = ${JSON.stringify(d.employees)}`
+  ).join('\n');
 
   const Anthropic = require('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -1068,7 +1070,7 @@ app.post('/api/parse-schedule', scheduleUpload.single('image'), ah(async (req, r
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [{
         role: 'user',
         content: [
@@ -1078,14 +1080,18 @@ app.post('/api/parse-schedule', scheduleUpload.single('image'), ah(async (req, r
           },
           {
             type: 'text',
-            text: `Extract the weekly schedule data from this image/PDF for the club "${clubName}".
+            text: `Extract the weekly schedule data from this image/PDF. It may contain one or more club schedules.
 
-The employees for this club are: ${JSON.stringify(empNames)}
+Known clubs and their employees:
+${clubList}
 
 Return ONLY valid JSON (no markdown, no backticks) in this exact format:
 {
-  "shifts": {
-    "Employee Name": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  "clubs": {
+    "Club Name": {
+      "Employee Name": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      ...
+    },
     ...
   }
 }
@@ -1093,20 +1099,18 @@ Return ONLY valid JSON (no markdown, no backticks) in this exact format:
 Rules:
 - Each employee array has exactly 7 values (Mon=index 0 through Sun=index 6)
 - Use empty string "" for days with no assignment
-- Use the exact shift text as shown (e.g. "East", "West", "Beach", "Camachee", "Shipyard", "Req Off", "12 - Close Camachee", "Open - 4 East", "Beach - 1", etc.)
-- Match employee names exactly to this list: ${JSON.stringify(empNames)}
-- If an employee in the image isn't in the list, use their name as shown
-- Only include employees who appear in the schedule image`,
+- Use the exact shift text as shown (e.g. "East", "West", "Beach", "Camachee", "Shipyard", "Req Off", "12 - Close Camachee", "Open - 4 East", "Beach - 1", "Capt Training", "Noon - Close Camachee", "Shipyard - 1", etc.)
+- Match employee names exactly to the known employee lists above
+- If an employee in the image isn't in a known list, use their name as shown
+- Only include clubs and employees that appear in the image`,
           },
         ],
       }],
     });
 
     const text = message.content[0].text.trim();
-    // Try to parse the JSON response
     let parsed;
     try {
-      // Strip markdown code fences if present
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       parsed = JSON.parse(cleaned);
     } catch (parseErr) {
@@ -1114,7 +1118,13 @@ Rules:
       return res.status(422).json({ error: 'Could not parse AI response', raw: text.slice(0, 2000) });
     }
 
-    res.json({ ok: true, club_id: clubId, club_name: clubName, ...parsed });
+    // Attach club IDs for the frontend
+    const result = { ok: true, clubs: {} };
+    for (const [clubName, shifts] of Object.entries(parsed.clubs || {})) {
+      const cd = clubData[clubName];
+      result.clubs[clubName] = { club_id: cd ? cd.id : null, shifts };
+    }
+    res.json(result);
   } catch (aiErr) {
     console.error('[parse-schedule] AI error:', aiErr.message);
     res.status(500).json({ error: 'AI parsing failed: ' + aiErr.message });
