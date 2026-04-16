@@ -1482,10 +1482,59 @@
   function showMultiClubPreview(container, parsedClubs) {
     container.innerHTML = '';
 
-    // Apply All button at top
+    // Detect new employees not in the roster
+    const newEmployees = [];
+    for (const [clubName, clubResult] of Object.entries(parsedClubs)) {
+      const clubId = clubResult.club_id;
+      if (!clubId) continue;
+      const weekKey = state.tab;
+      const data = (state.weekData[weekKey] || {})[clubId];
+      if (!data) continue;
+      const knownNames = new Set(data.employees.map(e => e.name.toLowerCase()));
+      for (const name of Object.keys(clubResult.shifts || {})) {
+        if (!knownNames.has(name.toLowerCase())) {
+          newEmployees.push({ clubName, clubId, name });
+        }
+      }
+    }
+
+    // Show new employee banner if any found
+    if (newEmployees.length) {
+      const banner = el('div', { class: 'import-issues' });
+      banner.appendChild(el('div', { class: 'import-issue-header' },
+        `${newEmployees.length} new employee${newEmployees.length > 1 ? 's' : ''} found — not yet in the roster:`));
+      newEmployees.forEach(ne => {
+        const row = el('div', { class: 'import-issue-row' });
+        row.appendChild(el('span', { class: 'import-new-badge' }, 'NEW'));
+        row.appendChild(el('span', {}, `${ne.name} (${ne.clubName})`));
+        const addBtn = el('button', {
+          class: 'primary',
+          style: 'font-size:11px; padding:3px 10px; margin-left:8px;',
+          onclick: async () => {
+            try {
+              await api(`/api/clubs/${ne.clubId}/employees`, {
+                method: 'POST',
+                body: { name: ne.name },
+              });
+              addBtn.textContent = 'Added!';
+              addBtn.disabled = true;
+              addBtn.className = 'ghost';
+              await loadAllSchedules();
+            } catch (err) { toast(err.message, 'err'); }
+          },
+        }, 'Add to Roster');
+        row.appendChild(addBtn);
+        banner.appendChild(row);
+      });
+      banner.appendChild(el('div', { class: 'muted', style: 'font-size:11px; margin-top:6px;' },
+        'Add new employees first, then click Apply All. Unadded employees will be skipped.'));
+      container.appendChild(banner);
+    }
+
+    // Apply All button
     const applyAllBtn = el('button', {
       class: 'primary',
-      style: 'margin-bottom:12px;',
+      style: 'margin:12px 0;',
       onclick: () => {
         applyAllParsedShifts(parsedClubs);
         closeModal();
@@ -1493,10 +1542,18 @@
     }, 'Apply All to Schedule');
     container.appendChild(applyAllBtn);
 
+    // Preview tables per club
     for (const [clubName, clubResult] of Object.entries(parsedClubs)) {
       const shifts = clubResult.shifts || {};
       const empNames = Object.keys(shifts);
       if (!empNames.length) continue;
+
+      const clubId = clubResult.club_id;
+      const weekKey = state.tab;
+      const data = clubId ? (state.weekData[weekKey] || {})[clubId] : null;
+      const knownNames = data
+        ? new Set(data.employees.map(e => e.name.toLowerCase()))
+        : new Set();
 
       container.appendChild(el('h3', { style: 'margin:16px 0 8px;' }, clubName));
 
@@ -1511,12 +1568,19 @@
       const tbody = el('tbody');
       empNames.forEach(name => {
         const dayShifts = shifts[name] || [];
+        const isNew = !knownNames.has(name.toLowerCase());
         const tr = el('tr');
-        tr.appendChild(el('td', { style: 'font-weight:600;' }, name));
+        if (isNew) tr.style.background = 'rgba(245, 158, 11, 0.1)';
+        const nameTd = el('td', { style: 'font-weight:600;' });
+        nameTd.appendChild(document.createTextNode(name));
+        if (isNew) {
+          nameTd.appendChild(el('span', { class: 'import-new-badge', style: 'margin-left:6px;' }, 'NEW'));
+        }
+        tr.appendChild(nameTd);
         for (let d = 0; d < 7; d++) {
           const val = dayShifts[d] || '';
           const td = el('td');
-          td.textContent = val || '—';
+          td.textContent = val || '\u2014';
           if (val) td.style.color = cellColorFor(val) || 'inherit';
           else td.style.color = 'var(--muted)';
           tr.appendChild(td);
