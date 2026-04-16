@@ -46,9 +46,9 @@ const ROSTERS = [
     team: null,
     sortBase: 0,
     names: [
-      'Sean Dressander', 'Gavin Carillo', 'Jaxin Gamber', 'Zoe Henley',
-      'Michael Guillet', 'Julia Catlett', 'Ryan Constantino',
-      'Bill Harris', 'Aidan Popp', 'Austin Corzo',
+      'Sean Dressander', 'Gavin Carillo', 'Cristian Hawley', 'Jaxin Gamber',
+      'Zoe Henley', 'Michael Guillet', 'Julia Catlett', 'Ryan Constantino',
+      'John Gleaton', 'Bill Harris', 'Aidan Popp', 'Austin Corzo',
       'Jack Fant', 'Alexander Vida',
     ],
   },
@@ -61,7 +61,6 @@ const REMOVED_FROM_ROSTER = [
   { club: 'Jacksonville', name: 'Rain Bartenfelder' },
   { club: 'St. Augustine', name: 'Andrew Gibner' },
   { club: 'St. Augustine', name: 'Dalton Hawley' },
-  { club: 'St. Augustine', name: 'John Gleaton' },
 ];
 
 async function main() {
@@ -525,30 +524,30 @@ const IMPORT_DATA = {
       },
       totals: { JB: [4,4,3,3,4,5,5], JCE: [1,1,2,2,3,4,4], JCW: [1,1,1,1,2,2,2] },
     },
-    '2026-04-20': { // Apr 20 - Apr 26 (next week — prefilled from Mar 30 schedule)
+    '2026-04-20': { // Apr 20 - Apr 26 (next week)
       shifts: {
-        'Nick Tragemann':    ['East','East','','','East','','East'],
-        'Alison Conner':     ['West','West','','','West','Req Off',''],
+        'Nick Tragemann':    ['','East','East','','East','','East'],
+        'Alison Conner':     ['West','West','','','West','West',''],
         'Sergio Palacios':   ['','','','East','East','East','East'],
         'Sam Wentworth':     ['','','West','West','','West','West'],
         'Branson Messer':    ['','','','','','',''],
         'William Krupsky':   ['','','','','','',''],
-        'Davin Barbour':     ['East','','','','East','East','East'],
-        'Delaney Holcomb':   ['','','','East','','East','East'],
-        'Aiden Rock':        ['','','','','','',''],
-        'William Eisner':    ['','','East','','West','East','West'],
-        'Dustyn Burd':       ['','Beach','','Beach','','Beach','Beach'],
-        'Michael Mobley':    ['','Beach','Beach','','Beach','Beach',''],
-        'Brandon Lanier':    ['','','Beach','','Beach','Beach',''],
-        'Tyler Boggess':     ['','','','','','',''],
-        'Morgan Tragemann':  ['Beach','','East','Beach','','West','Beach'],
-        'Justice Bramer':    ['Beach','','Beach','Beach','Req Off','Req Off',''],
-        'Jaron Firesheets':  ['','Beach','','Beach','Beach','','Beach'],
-        'Alec Murino':       ['Beach','','','','Beach','','Beach'],
+        'Davin Barbour':     ['East','','','','','East','East'],
+        'Delaney Holcomb':   ['','','','East','East','East','East'],
+        'Aiden Rock':        ['','','','','','','West'],
+        'William Eisner':    ['','','East - 4','','West','East',''],
+        'Dustyn Burd':       ['','Beach','','Req Off','Beach','','Beach'],
+        'Michael Mobley':    ['Beach','','Beach','','Beach','Beach',''],
+        'Brandon Lanier':    ['','Beach','Beach','','Beach','Beach',''],
+        'Tyler Boggess':     ['','','','','','Beach',''],
+        'Morgan Tragemann':  ['East','','','','East','','Beach'],
+        'Justice Bramer':    ['Beach','','','Beach','Beach','','Beach'],
+        'Jaron Firesheets':  ['','Beach','Beach','Req Off','Req Off','Req Off','Req Off'],
+        'Alec Murino':       ['Beach','','','Beach','','Beach','Beach'],
         'Mackenzie Shealy':  ['','','','','','',''],
-        'Brandon McSwigan':  ['Beach','','','','Beach','','Beach'],
+        'Brandon McSwigan':  ['','','','Beach','','Beach','Beach'],
       },
-      totals: { JB: [4,3,3,3,4,5,5], JCE: [2,1,2,2,3,4,4], JCW: [1,1,1,1,2,2,2] },
+      totals: { JB: [3,3,3,3,4,5,5], JCE: [1,1,2,2,4,4,4], JCW: [1,1,1,1,2,2,2] },
     },
   },
   'St. Augustine': {
@@ -606,30 +605,30 @@ const IMPORT_DATA = {
       },
       totals: { CC: [4,3,3,4,5,5,5], SY: [1,1,1,1,1,2,2] },
     },
-    '2026-04-20': { // Apr 20 - Apr 26 (next week — prefilled from Mar 30 schedule)
+    '2026-04-20': { // Apr 20 - Apr 26 (next week)
       shifts: {
-        'Sean Dressander':        ['Camachee','Camachee','Req Off','Req Off','Req Off','Req Off','Req Off'],
-        'Gavin Carillo':          ['','','Camachee','Camachee','Camachee','Camachee','Camachee'],
-        'Jaxin Gamber':           ['','','','','','','Shipyard'],
-        'Zoe Henley':             ['Camachee','','','','Camachee','','Req Off'],
-        'Michael Guillet':        ['','','','','','Shipyard','Camachee'],
-        'Julia Catlett':          ['Camachee','Camachee','Camachee','','','Camachee','Camachee'],
-        'Ryan Constantino':       ['','Camachee','','Camachee','','Camachee',''],
-        'John Gleaton': ['','Camachee','','Camachee','','','Camachee'],
-        'Bill Harris':            ['Camachee','','Camachee','Camachee','Camachee','','Camachee'],
-        'Aidan Popp':             ['','','','','','Camachee','12 - Close Camachee'],
-        'Austin Corzo':           ['','','','','','Camachee',''],
-        'Jack Fant':              ['Shipyard','Shipyard','','','Shipyard','Shipyard','Shipyard'],
-        'Alexander Vida':         ['','','Shipyard','Shipyard','Shipyard','Shipyard',''],
+        'Sean Dressander':        ['Camachee','','Camachee','','','Camachee','Camachee'],
+        'Gavin Carillo':          ['','Camachee','','Camachee','Camachee','Camachee',''],
+        'Cristian Hawley':        ['','','','','','',''],
+        'Zoe Henley':             ['Camachee','','','','Camachee','','Camachee'],
+        'Michael Guillet':        ['','','','','','Shipyard','Shipyard'],
+        'Julia Catlett':          ['Camachee','','','Camachee','','Camachee',''],
+        'Ryan Constantino':       ['','Camachee','Camachee','','','Camachee',''],
+        'John Gleaton':           ['Shipyard - 1','Camachee','','Camachee','','Camachee',''],
+        'Bill Harris':            ['Capt Training','','Camachee','','Camachee','','Camachee'],
+        'Aidan Popp':             ['','','','','','Camachee','Camachee'],
+        'Austin Corzo':           ['','','','Noon - Close Camachee','Noon - Close Camachee','','Camachee'],
+        'Jack Fant':              ['Shipyard','Shipyard','','','Shipyard','','Shipyard'],
+        'Alexander Vida':         ['','','Shipyard','Shipyard','Camachee','Shipyard',''],
       },
-      totals: { CC: [4,3,3,3,4,5,5], SY: [1,1,1,1,1,2,2] },
+      totals: { CC: [3,3,3,4,5,6,5], SY: [2,1,1,1,1,2,2] },
     },
   },
 };
 
 async function importScheduleData(pool) {
   const { rows: flagRows } = await pool.query(
-    "SELECT value FROM app_state WHERE key = 'import_schedule_v3'"
+    "SELECT value FROM app_state WHERE key = 'import_schedule_v4'"
   );
   if (flagRows[0] && process.env.FORCE_IMPORT !== 'true') return;
 
@@ -686,7 +685,7 @@ async function importScheduleData(pool) {
   }
 
   await pool.query(
-    `INSERT INTO app_state (key, value) VALUES ('import_schedule_v3', NOW()::text)
+    `INSERT INTO app_state (key, value) VALUES ('import_schedule_v4', NOW()::text)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`);
   console.log('[migrate] schedule import complete');
 }
