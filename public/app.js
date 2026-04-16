@@ -677,8 +677,8 @@
         visibleClubs = state.clubs;
       }
 
-      // Import Schedule button — prominent transition tool
-      if (!isPastView()) {
+      // Import Schedule button — owners only
+      if (!isPastView() && isOwner()) {
         const importBar = el('div', { class: 'import-bar' });
         importBar.appendChild(el('button', {
           class: 'primary import-schedule-btn',
