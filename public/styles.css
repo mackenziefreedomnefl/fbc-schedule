@@ -475,7 +475,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   background: #ffffff;
 }
 .schedule-table tbody tr:nth-child(even):not(.team-divider):not(.repeat-header) {
-  background: #e8eaed;
+  background: #d0d3d9;
 }
 .schedule-table tbody tr:nth-child(even):not(.team-divider):not(.repeat-header) td.day-cell input {
   background: transparent;
