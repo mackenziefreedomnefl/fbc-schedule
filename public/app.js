@@ -583,6 +583,7 @@
         menu.appendChild(el('button', { onclick: openAdminPanel }, 'Admin'));
       }
 
+      menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
       menu.appendChild(el('button', { onclick: openChangePasswordModal }, 'Account'));
       menu.appendChild(el('button', {
         onclick: async () => {
@@ -1412,6 +1413,150 @@
   }
 
   // -------- login modal --------
+  // -------- Import Schedule from Image --------
+  // -------- Time Off panel --------
+  async function openTimeOffPanel() {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Time Off Requests'));
+
+    // Add new request form
+    const addWrap = el('div', { class: 'timeoff-add' });
+    addWrap.appendChild(el('div', { class: 'timeoff-add-label' }, 'Add Request'));
+
+    // Employee picker
+    const empSelect = el('select', { class: 'timeoff-select' });
+    empSelect.appendChild(el('option', { value: '' }, 'Select employee...'));
+    for (const club of state.clubs) {
+      const weekKey = state.tab;
+      const data = (state.weekData[weekKey] || {})[club.id];
+      if (!data) continue;
+      const optgroup = el('optgroup', { label: club.name });
+      data.employees.forEach(e => {
+        optgroup.appendChild(el('option', { value: e.id }, e.name));
+      });
+      empSelect.appendChild(optgroup);
+    }
+
+    const startInput = el('input', { type: 'date', class: 'timeoff-date' });
+    const endInput = el('input', { type: 'date', class: 'timeoff-date' });
+    const noteInput = el('input', { type: 'text', placeholder: 'Note (optional)', class: 'timeoff-note' });
+
+    const addRow = el('div', { class: 'timeoff-add-row' });
+    addRow.appendChild(empSelect);
+    addRow.appendChild(el('span', { class: 'muted' }, 'From'));
+    addRow.appendChild(startInput);
+    addRow.appendChild(el('span', { class: 'muted' }, 'To'));
+    addRow.appendChild(endInput);
+    addRow.appendChild(noteInput);
+    addRow.appendChild(el('button', {
+      class: 'primary',
+      onclick: async () => {
+        if (!empSelect.value || !startInput.value || !endInput.value) {
+          toast('Select employee and dates', 'err'); return;
+        }
+        try {
+          await api('/api/time-off', {
+            method: 'POST',
+            body: {
+              employee_id: Number(empSelect.value),
+              start_date: startInput.value,
+              end_date: endInput.value,
+              note: noteInput.value,
+            },
+          });
+          toast('Request added');
+          empSelect.value = '';
+          startInput.value = '';
+          endInput.value = '';
+          noteInput.value = '';
+          refreshList();
+        } catch (err) { toast(err.message, 'err'); }
+      },
+    }, 'Add'));
+    addWrap.appendChild(addRow);
+    content.appendChild(addWrap);
+
+    // Request list
+    const listWrap = el('div', { class: 'timeoff-list' });
+    content.appendChild(listWrap);
+
+    async function refreshList() {
+      const requests = await api('/api/time-off');
+      listWrap.innerHTML = '';
+      if (!requests.length) {
+        listWrap.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No time off requests yet.'));
+        return;
+      }
+
+      // Group: pending first, then approved, then denied
+      const groups = { pending: [], approved: [], denied: [] };
+      requests.forEach(r => { (groups[r.status] || groups.pending).push(r); });
+
+      for (const [status, items] of Object.entries(groups)) {
+        if (!items.length) continue;
+        const label = status === 'pending' ? 'Pending'
+          : status === 'approved' ? 'Approved' : 'Denied';
+        listWrap.appendChild(el('div', { class: 'timeoff-group-label timeoff-' + status }, label));
+
+        items.forEach(r => {
+          const row = el('div', { class: 'timeoff-row timeoff-' + r.status });
+          row.appendChild(el('span', { class: 'timeoff-name' }, r.employee_name));
+          row.appendChild(el('span', { class: 'timeoff-club muted' }, r.club_name));
+          row.appendChild(el('span', { class: 'timeoff-dates' }, `${r.start_date} to ${r.end_date}`));
+          if (r.note) row.appendChild(el('span', { class: 'timeoff-note-text muted' }, r.note));
+
+          if (r.status === 'pending') {
+            row.appendChild(el('button', {
+              class: 'primary',
+              style: 'font-size:11px; padding:3px 10px;',
+              onclick: async () => {
+                try {
+                  const result = await api(`/api/time-off/${r.id}/approve`, { method: 'POST' });
+                  toast(`Approved — filled ${result.days_filled} day${result.days_filled !== 1 ? 's' : ''} as Req Off`);
+                  refreshList();
+                  await loadAllSchedules();
+                  renderBody();
+                } catch (err) { toast(err.message, 'err'); }
+              },
+            }, 'Approve'));
+            row.appendChild(el('button', {
+              class: 'ghost danger',
+              style: 'font-size:11px; padding:3px 10px;',
+              onclick: async () => {
+                try {
+                  await api(`/api/time-off/${r.id}/deny`, { method: 'POST' });
+                  toast('Denied');
+                  refreshList();
+                } catch (err) { toast(err.message, 'err'); }
+              },
+            }, 'Deny'));
+          }
+
+          row.appendChild(el('button', {
+            class: 'ghost',
+            style: 'font-size:11px; padding:3px 8px;',
+            onclick: async () => {
+              try {
+                await api(`/api/time-off/${r.id}`, { method: 'DELETE' });
+                refreshList();
+              } catch (err) { toast(err.message, 'err'); }
+            },
+          }, '\u2715'));
+
+          listWrap.appendChild(row);
+        });
+      }
+    }
+
+    content.appendChild(el('button', {
+      class: 'ghost', style: 'margin-top:12px;',
+      onclick: closeModal,
+    }, 'Close'));
+
+    openModal(content, { wide: true });
+    refreshList();
+  }
+
   // -------- Import Schedule from Image --------
   function openImportScheduleModal() {
     const content = el('div');

@@ -117,6 +117,23 @@ CREATE TABLE IF NOT EXISTS schedule_images (
   UNIQUE (week_start)
 );
 
+-- Time off requests
+CREATE TABLE IF NOT EXISTS time_off_requests (
+  id SERIAL PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','denied')),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  resolved_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS time_off_requests_employee_idx ON time_off_requests(employee_id);
+CREATE INDEX IF NOT EXISTS time_off_requests_status_idx ON time_off_requests(status);
+
 -- Key/value flags for one-shot migration logic (e.g. example data seeding)
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,

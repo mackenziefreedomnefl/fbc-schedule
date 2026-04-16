@@ -1035,6 +1035,131 @@ app.delete('/api/schedule-images/:weekStart', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- time off requests ----------
+
+// List time off requests (optionally filter by status/club)
+app.get('/api/time-off', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const status = req.query.status || null;
+  const params = [];
+  let where = '1=1';
+  if (status) { params.push(status); where += ` AND t.status = $${params.length}`; }
+  const { rows } = await pool.query(
+    `SELECT t.id, t.employee_id, t.club_id, t.start_date, t.end_date, t.note,
+            t.status, t.created_at, t.resolved_at,
+            e.name AS employee_name, c.name AS club_name
+       FROM time_off_requests t
+       JOIN employees e ON e.id = t.employee_id
+       JOIN clubs c ON c.id = t.club_id
+      WHERE ${where}
+      ORDER BY t.status = 'pending' DESC, t.start_date ASC, t.created_at DESC`,
+    params
+  );
+  res.json(rows.map(r => ({
+    ...r,
+    start_date: r.start_date instanceof Date ? r.start_date.toISOString().slice(0, 10) : r.start_date,
+    end_date: r.end_date instanceof Date ? r.end_date.toISOString().slice(0, 10) : r.end_date,
+  })));
+}));
+
+// Create a time off request (owner/manager enters on behalf of staff)
+app.post('/api/time-off', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const { employee_id, start_date, end_date, note } = req.body || {};
+  if (!employee_id || !start_date || !end_date) {
+    return res.status(400).json({ error: 'employee_id, start_date, end_date required' });
+  }
+  const { rows: empRows } = await pool.query('SELECT id, club_id, name FROM employees WHERE id = $1', [employee_id]);
+  if (!empRows[0]) return res.status(404).json({ error: 'employee not found' });
+  const emp = empRows[0];
+  const { rows } = await pool.query(
+    `INSERT INTO time_off_requests (employee_id, club_id, start_date, end_date, note, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [employee_id, emp.club_id, start_date, end_date, note || '', user.id]
+  );
+  await audit(user, 'time_off_created', emp.club_id, null, {
+    employee_id, employee_name: emp.name, start_date, end_date, note: note || '',
+  });
+  res.json({ ok: true, id: rows[0].id });
+}));
+
+// Approve a time off request — auto-fills Req Off in the schedule
+app.post('/api/time-off/:id/approve', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const reqId = Number(req.params.id);
+  const { rows } = await pool.query(
+    `SELECT t.*, e.name AS employee_name FROM time_off_requests t
+     JOIN employees e ON e.id = t.employee_id WHERE t.id = $1`, [reqId]);
+  if (!rows[0]) return res.status(404).json({ error: 'request not found' });
+  const tor = rows[0];
+
+  await pool.query(
+    `UPDATE time_off_requests SET status = 'approved', resolved_by = $1, resolved_at = NOW() WHERE id = $2`,
+    [user.id, reqId]
+  );
+
+  // Auto-fill Req Off for each day in the range
+  const start = new Date(tor.start_date + 'T00:00:00Z');
+  const end = new Date(tor.end_date + 'T00:00:00Z');
+  let filled = 0;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const weekStart = mondayOf(d.toISOString().slice(0, 10));
+    const dayOfWeek = d.getUTCDay();
+    const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Mon=0..Sun=6
+    const schedule = await getOrCreateSchedule(tor.club_id, weekStart);
+    await pool.query(
+      `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
+       VALUES ($1, $2, $3, 'Req Off')
+       ON CONFLICT (schedule_id, employee_id, day_index)
+       DO UPDATE SET shift_text = 'Req Off'`,
+      [schedule.id, tor.employee_id, dayIndex]
+    );
+    filled++;
+  }
+  await pool.query('UPDATE schedules SET updated_at = NOW() WHERE club_id = $1', [tor.club_id]);
+
+  await audit(user, 'time_off_approved', tor.club_id, null, {
+    employee_id: tor.employee_id, employee_name: tor.employee_name,
+    start_date: tor.start_date instanceof Date ? tor.start_date.toISOString().slice(0, 10) : tor.start_date,
+    end_date: tor.end_date instanceof Date ? tor.end_date.toISOString().slice(0, 10) : tor.end_date,
+    days_filled: filled,
+  });
+  res.json({ ok: true, days_filled: filled });
+}));
+
+// Deny a time off request
+app.post('/api/time-off/:id/deny', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const reqId = Number(req.params.id);
+  const { rows } = await pool.query(
+    `SELECT t.*, e.name AS employee_name FROM time_off_requests t
+     JOIN employees e ON e.id = t.employee_id WHERE t.id = $1`, [reqId]);
+  if (!rows[0]) return res.status(404).json({ error: 'request not found' });
+  const tor = rows[0];
+  await pool.query(
+    `UPDATE time_off_requests SET status = 'denied', resolved_by = $1, resolved_at = NOW() WHERE id = $2`,
+    [user.id, reqId]
+  );
+  await audit(user, 'time_off_denied', tor.club_id, null, {
+    employee_id: tor.employee_id, employee_name: tor.employee_name,
+    start_date: tor.start_date instanceof Date ? tor.start_date.toISOString().slice(0, 10) : tor.start_date,
+    end_date: tor.end_date instanceof Date ? tor.end_date.toISOString().slice(0, 10) : tor.end_date,
+  });
+  res.json({ ok: true });
+}));
+
+// Delete a time off request
+app.delete('/api/time-off/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  await pool.query('DELETE FROM time_off_requests WHERE id = $1', [Number(req.params.id)]);
+  res.json({ ok: true });
+}));
+
 // ---------- AI schedule parsing ----------
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
