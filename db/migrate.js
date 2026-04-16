@@ -227,6 +227,28 @@ async function main() {
       console.warn('[migrate] OWNER_EMAILS set but OWNER_PASSWORD missing — owners not seeded');
     }
 
+    // Hardcoded owner seeds (separate from env-var owners).
+    // These are created if they don't exist. Password is only set on creation.
+    // To reset, use /api/reset-password endpoint.
+    const HARDCODED_OWNERS = [
+      { email: 'david.grigg@freedomboatclub.com', password: 'Freedom2026!', name: 'David Grigg' },
+    ];
+    for (const o of HARDCODED_OWNERS) {
+      const email = o.email.toLowerCase().trim();
+      const { rows: existing } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+      if (!existing[0]) {
+        const hash = await bcrypt.hash(o.password, 10);
+        await pool.query(
+          "INSERT INTO users (email, password_hash, role, name) VALUES ($1, $2, 'owner', $3)",
+          [email, hash, o.name]
+        );
+        console.log(`[migrate] created owner ${email}`);
+      } else {
+        // Make sure existing user has owner role
+        await pool.query("UPDATE users SET role = 'owner' WHERE id = $1 AND role <> 'owner'", [existing[0].id]);
+      }
+    }
+
     // Prune audit log entries older than 30 days.
     const { rowCount: pruned } = await pool.query(
       "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '30 days'"
