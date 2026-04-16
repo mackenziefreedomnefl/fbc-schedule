@@ -1047,7 +1047,7 @@ app.get('/api/time-off', ah(async (req, res) => {
   if (status) { params.push(status); where += ` AND t.status = $${params.length}`; }
   const { rows } = await pool.query(
     `SELECT t.id, t.employee_id, t.club_id, t.start_date, t.end_date, t.note,
-            t.status, t.created_at, t.resolved_at,
+            t.status, t.is_pto, t.created_at, t.resolved_at,
             e.name AS employee_name, c.name AS club_name
        FROM time_off_requests t
        JOIN employees e ON e.id = t.employee_id
@@ -1067,7 +1067,7 @@ app.get('/api/time-off', ah(async (req, res) => {
 app.post('/api/time-off', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
-  const { employee_id, start_date, end_date, note } = req.body || {};
+  const { employee_id, start_date, end_date, note, is_pto } = req.body || {};
   if (!employee_id || !start_date || !end_date) {
     return res.status(400).json({ error: 'employee_id, start_date, end_date required' });
   }
@@ -1075,9 +1075,9 @@ app.post('/api/time-off', ah(async (req, res) => {
   if (!empRows[0]) return res.status(404).json({ error: 'employee not found' });
   const emp = empRows[0];
   const { rows } = await pool.query(
-    `INSERT INTO time_off_requests (employee_id, club_id, start_date, end_date, note, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [employee_id, emp.club_id, start_date, end_date, note || '', user.id]
+    `INSERT INTO time_off_requests (employee_id, club_id, start_date, end_date, note, is_pto, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [employee_id, emp.club_id, start_date, end_date, note || '', !!is_pto, user.id]
   );
   await audit(user, 'time_off_created', emp.club_id, null, {
     employee_id, employee_name: emp.name, start_date, end_date, note: note || '',
@@ -1149,6 +1149,24 @@ app.post('/api/time-off/:id/deny', ah(async (req, res) => {
     start_date: tor.start_date instanceof Date ? tor.start_date.toISOString().slice(0, 10) : tor.start_date,
     end_date: tor.end_date instanceof Date ? tor.end_date.toISOString().slice(0, 10) : tor.end_date,
   });
+  res.json({ ok: true });
+}));
+
+// Edit a time off request
+app.patch('/api/time-off/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const reqId = Number(req.params.id);
+  const { start_date, end_date, note, is_pto } = req.body || {};
+  const sets = [];
+  const vals = [];
+  if (start_date !== undefined) { vals.push(start_date); sets.push(`start_date = $${vals.length}`); }
+  if (end_date !== undefined) { vals.push(end_date); sets.push(`end_date = $${vals.length}`); }
+  if (note !== undefined) { vals.push(note); sets.push(`note = $${vals.length}`); }
+  if (is_pto !== undefined) { vals.push(!!is_pto); sets.push(`is_pto = $${vals.length}`); }
+  if (!sets.length) return res.json({ ok: true });
+  vals.push(reqId);
+  await pool.query(`UPDATE time_off_requests SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals);
   res.json({ ok: true });
 }));
 

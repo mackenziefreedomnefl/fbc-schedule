@@ -836,6 +836,13 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .timeoff-club { font-size: 12px; min-width: 100px; }
 .timeoff-dates { font-size: 13px; white-space: nowrap; }
 .timeoff-note-text { font-size: 12px; font-style: italic; }
+.timeoff-actions { display: flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.timeoff-pto-badge {
+  background: #7c3aed; color: #fff; font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 3px; letter-spacing: 0.05em;
+}
+.timeoff-pto-wrap { display: flex; align-items: center; gap: 4px; }
+.timeoff-pto-label { font-size: 12px; white-space: nowrap; cursor: pointer; }
 
 /* Import bar */
 .import-bar {
