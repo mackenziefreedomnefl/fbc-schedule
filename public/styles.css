@@ -280,6 +280,15 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   border-color: var(--ok);
   background: rgba(34, 197, 94, 0.10);
 }
+button.review-badge-clickable {
+  cursor: pointer;
+  font-family: inherit;
+}
+button.review-badge-clickable:hover {
+  filter: brightness(0.92);
+  transform: translateY(-1px);
+  transition: transform 0.1s;
+}
 
 /* Location picker for anonymous staff */
 .location-picker {

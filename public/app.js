@@ -906,6 +906,7 @@
       const clubRedo = redoCountForClub(club.id);
 
       let statusText, statusClass;
+      let statusClickable = false;
       if (clubCount) {
         statusText = `${clubCount} unsaved change${clubCount === 1 ? '' : 's'}`;
         statusClass = 'review-badge draft';
@@ -915,14 +916,23 @@
       } else if (rs === 'submitted') {
         statusText = isOwner() ? 'Changes awaiting your approval' : 'Sent for review — awaiting approval';
         statusClass = 'review-badge pending';
+        statusClickable = true;
       } else if (rs === 'changes_pending') {
         statusText = isOwner() ? 'New changes since last approval' : 'Changes since last approval — send for review';
         statusClass = 'review-badge pending';
+        statusClickable = true;
       } else {
         statusText = isOwner() ? 'Draft — not yet submitted' : 'Draft — not yet sent for review';
         statusClass = 'review-badge draft';
       }
-      draftBar.appendChild(el('span', { class: statusClass }, statusText));
+      const statusEl = el(statusClickable ? 'button' : 'span',
+        { class: statusClass + (statusClickable ? ' review-badge-clickable' : '') },
+        statusClickable ? statusText + '  \u2139' : statusText
+      );
+      if (statusClickable) {
+        statusEl.addEventListener('click', () => openPendingChangesModal(club, data));
+      }
+      draftBar.appendChild(statusEl);
       draftBar.appendChild(el('button', {
         class: 'draft-undo', disabled: !clubUndo,
         onclick: () => undoForClub(club.id),
@@ -2729,6 +2739,105 @@
   }
 
   // -------- week activity modal --------
+  // Show what changed since the last approval/send-for-review.
+  // Uses data.pending_cells and data.pending_totals which the server
+  // already computed for us.
+  function openPendingChangesModal(club, data) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `Pending Changes — ${club.name}`));
+    content.appendChild(el('p', { class: 'muted', style: 'margin-top:-6px;' },
+      `Cells changed since last ${data.review_status === 'submitted' ? 'send for review' : 'approval'}.`));
+
+    const empById = {};
+    for (const e of data.employees) empById[e.id] = e;
+
+    const cells = (data.pending_cells || []).slice().sort((a, b) => {
+      const na = empById[a.employee_id] ? empById[a.employee_id].name : '';
+      const nb = empById[b.employee_id] ? empById[b.employee_id].name : '';
+      if (na !== nb) return na.localeCompare(nb);
+      return a.day_index - b.day_index;
+    });
+    const totals = data.pending_totals || [];
+
+    if (!cells.length && !totals.length) {
+      content.appendChild(el('div', { class: 'muted' }, 'No changes.'));
+    }
+
+    if (cells.length) {
+      content.appendChild(el('h3', { style: 'margin-top:14px;' }, 'Shift changes'));
+      const table = el('table', { class: 'data-table', style: 'font-size:13px;' });
+      table.appendChild(el('thead', {}, el('tr', {}, [
+        el('th', {}, 'Employee'),
+        el('th', {}, 'Day'),
+        el('th', {}, 'Before'),
+        el('th', {}, 'After'),
+      ])));
+      const tbody = el('tbody');
+      cells.forEach(c => {
+        const empName = empById[c.employee_id] ? empById[c.employee_id].name : `(employee ${c.employee_id})`;
+        const dayLabel = DAYS[c.day_index] || `Day ${c.day_index}`;
+        const dt = new Date(data.schedule.week_start + 'T00:00:00');
+        dt.setDate(dt.getDate() + c.day_index);
+        const dateLabel = `${dayLabel} ${dt.getMonth()+1}/${dt.getDate()}`;
+        const tr = el('tr');
+        tr.appendChild(el('td', { style: 'font-weight:600;' }, empName));
+        tr.appendChild(el('td', {}, dateLabel));
+        const beforeTd = el('td', {});
+        if (c.old_value) {
+          beforeTd.textContent = c.old_value;
+          beforeTd.style.color = cellColorFor(c.old_value) || 'inherit';
+        } else {
+          beforeTd.textContent = '(empty)';
+          beforeTd.style.color = 'var(--muted)';
+        }
+        tr.appendChild(beforeTd);
+        const afterTd = el('td', {});
+        if (c.new_value) {
+          afterTd.textContent = c.new_value;
+          afterTd.style.color = cellColorFor(c.new_value) || 'inherit';
+          afterTd.style.fontWeight = '600';
+        } else {
+          afterTd.textContent = '(cleared)';
+          afterTd.style.color = 'var(--danger)';
+          afterTd.style.fontWeight = '600';
+        }
+        tr.appendChild(afterTd);
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      content.appendChild(table);
+    }
+
+    if (totals.length) {
+      content.appendChild(el('h3', { style: 'margin-top:14px;' }, 'Staffing total changes'));
+      const table = el('table', { class: 'data-table', style: 'font-size:13px;' });
+      table.appendChild(el('thead', {}, el('tr', {}, [
+        el('th', {}, 'Location'),
+        el('th', {}, 'Day'),
+      ])));
+      const tbody = el('tbody');
+      totals.forEach(t => {
+        const dayLabel = DAYS[t.day_index] || `Day ${t.day_index}`;
+        const dt = new Date(data.schedule.week_start + 'T00:00:00');
+        dt.setDate(dt.getDate() + t.day_index);
+        const dateLabel = `${dayLabel} ${dt.getMonth()+1}/${dt.getDate()}`;
+        const tr = el('tr');
+        tr.appendChild(el('td', {}, t.location));
+        tr.appendChild(el('td', {}, dateLabel));
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      content.appendChild(table);
+    }
+
+    content.appendChild(el('button', {
+      class: 'ghost', style: 'margin-top:12px;',
+      onclick: closeModal,
+    }, 'Close'));
+
+    openModal(content, { wide: true });
+  }
+
   function openWeekActivityModal(club, data) {
     const updates = data.recent_updates || [];
     const content = el('div');
