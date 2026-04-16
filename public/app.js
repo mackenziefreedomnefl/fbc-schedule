@@ -1141,6 +1141,28 @@
     timeWrap.appendChild(timeOk);
     picker.appendChild(timeWrap);
 
+    // Free text — type anything, no location required
+    picker.appendChild(el('div', { class: 'shift-pick-label' }, 'Free text'));
+    const freeWrap = el('div', { class: 'shift-pick-other-wrap' });
+    const freeInput = el('input', {
+      type: 'text',
+      class: 'shift-pick-other-input',
+      placeholder: 'Type anything\u2026',
+    });
+    freeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        done(freeInput.value.trim());
+      }
+    });
+    const freeOk = el('button', {
+      class: 'shift-pick-btn',
+      onclick: (e) => { e.stopPropagation(); done(freeInput.value.trim()); },
+    }, 'OK');
+    freeWrap.appendChild(freeInput);
+    freeWrap.appendChild(freeOk);
+    picker.appendChild(freeWrap);
+
     // Req Off + Clear
     const bottomRow = el('div', { class: 'shift-pick-row' });
     bottomRow.appendChild(el('button', {
