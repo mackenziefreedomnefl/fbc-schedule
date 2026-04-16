@@ -383,7 +383,7 @@ app.delete('/api/users/:id', ah(async (req, res) => {
 // ---------- audit log (owner-only) ----------
 app.get('/api/audit', ah(async (req, res) => {
   const user = await loadUser(req);
-  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  if (!user) return res.status(401).json({ error: 'sign in required' });
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
   const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
   const { rows } = await pool.query(
@@ -400,6 +400,66 @@ app.get('/api/audit', ah(async (req, res) => {
     "SELECT COUNT(*)::int AS total FROM audit_log WHERE created_at >= NOW() - INTERVAL '30 days'"
   );
   res.json({ entries: rows, total: countRows[0].total, limit, offset });
+}));
+
+// Revert an audit entry — reverses cell edits and total edits back to their old value
+app.post('/api/audit/:id/revert', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const id = Number(req.params.id);
+  const { rows } = await pool.query('SELECT * FROM audit_log WHERE id = $1', [id]);
+  const entry = rows[0];
+  if (!entry) return res.status(404).json({ error: 'entry not found' });
+  const d = entry.details || {};
+
+  if (entry.action === 'cell_edit') {
+    // Find the schedule for this club + week
+    const weekStart = d.week_start;
+    if (!weekStart) return res.status(400).json({ error: 'no week_start on entry' });
+    const { rows: schedRows } = await pool.query(
+      'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2',
+      [entry.club_id, weekStart]
+    );
+    if (!schedRows[0]) return res.status(404).json({ error: 'schedule not found' });
+    const scheduleId = schedRows[0].id;
+    const oldValue = d.old_value || '';
+    await pool.query(
+      `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (schedule_id, employee_id, day_index)
+       DO UPDATE SET shift_text = EXCLUDED.shift_text`,
+      [scheduleId, d.employee_id, d.day_index, oldValue]
+    );
+    await pool.query('UPDATE schedules SET updated_at = NOW() WHERE id = $1', [scheduleId]);
+    await audit(user, 'cell_edit', entry.club_id, null, {
+      ...d, new_value: oldValue, old_value: d.new_value || '', reverted_from: id,
+    });
+    return res.json({ ok: true });
+  }
+
+  if (entry.action === 'total_edit') {
+    const weekStart = d.week_start;
+    const { rows: schedRows } = await pool.query(
+      'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2',
+      [entry.club_id, weekStart]
+    );
+    if (!schedRows[0]) return res.status(404).json({ error: 'schedule not found' });
+    const scheduleId = schedRows[0].id;
+    const oldValue = d.old_value || '';
+    await pool.query(
+      `INSERT INTO location_totals (schedule_id, location, day_index, count_text)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (schedule_id, location, day_index)
+       DO UPDATE SET count_text = EXCLUDED.count_text`,
+      [scheduleId, d.location, d.day_index, oldValue]
+    );
+    await audit(user, 'total_edit', entry.club_id, null, {
+      ...d, count_text: oldValue, reverted_from: id,
+    });
+    return res.json({ ok: true });
+  }
+
+  return res.status(400).json({ error: 'this action cannot be reverted' });
 }));
 
 // Recent schedule_published notifications for the signed-in user.

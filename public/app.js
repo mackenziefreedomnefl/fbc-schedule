@@ -595,6 +595,7 @@
       }
 
       menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
+      menu.appendChild(el('button', { onclick: openRecentActivityPanel }, 'Recent Activity'));
       menu.appendChild(el('button', { onclick: openChangePasswordModal }, 'Account'));
       menu.appendChild(el('button', {
         onclick: async () => {
@@ -1484,6 +1485,79 @@
   // -------- login modal --------
   // -------- Import Schedule from Image --------
   // -------- Time Off panel --------
+  // -------- Recent Activity panel (managers + owners) --------
+  async function openRecentActivityPanel() {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Recent Activity'));
+    content.appendChild(el('p', { class: 'muted', style: 'margin-top:-6px;' },
+      'Last 30 days. Click Undo to revert a cell or totals change.'));
+
+    const list = el('div', { class: 'activity-list' });
+    content.appendChild(list);
+
+    const footer = el('div', { style: 'margin-top:12px;' });
+    content.appendChild(footer);
+
+    content.appendChild(el('button', {
+      class: 'ghost', style: 'margin-top:12px;',
+      onclick: closeModal,
+    }, 'Close'));
+
+    openModal(content, { wide: true });
+
+    const pageSize = 50;
+    let offset = 0;
+
+    async function loadPage() {
+      footer.innerHTML = '';
+      let result;
+      try { result = await api(`/api/audit?limit=${pageSize}&offset=${offset}`); }
+      catch (e) { footer.appendChild(el('div', { class: 'error' }, e.message)); return; }
+
+      result.entries.forEach(e => {
+        const isRevertable = e.action === 'cell_edit' || e.action === 'total_edit';
+        const row = el('div', { class: 'activity-row' +
+          (e.action === 'schedule_published' || e.action === 'schedule_submitted' ? ' activity-publish' : '') });
+        row.appendChild(el('div', { class: 'activity-when' }, fmtRelative(e.created_at)));
+        row.appendChild(el('div', { class: 'activity-who muted' }, e.user_label));
+        row.appendChild(el('div', { class: 'activity-what' }, describeAuditEntry(e)));
+
+        if (isRevertable) {
+          const undoBtn = el('button', {
+            class: 'ghost',
+            style: 'font-size:11px; padding:2px 8px; margin-left:8px;',
+            onclick: async () => {
+              if (!confirm('Undo this change?')) return;
+              try {
+                await api(`/api/audit/${e.id}/revert`, { method: 'POST' });
+                toast('Reverted');
+                await loadAllSchedules();
+                renderBody();
+                list.innerHTML = '';
+                offset = 0;
+                loadPage();
+              } catch (err) { toast(err.message, 'err'); }
+            },
+          }, 'Undo');
+          row.appendChild(undoBtn);
+        }
+
+        list.appendChild(row);
+      });
+
+      offset += pageSize;
+      if (offset < result.total) {
+        footer.appendChild(el('button', {
+          class: 'ghost', onclick: loadPage,
+        }, `Load more (${result.total - offset} remaining)`));
+      } else if (!result.entries.length && offset === pageSize) {
+        list.appendChild(el('div', { class: 'muted' }, 'No activity yet.'));
+      }
+    }
+
+    loadPage();
+  }
+
   async function openTimeOffPanel() {
     const content = el('div');
     content.appendChild(el('h2', {}, 'Time Off Requests'));
