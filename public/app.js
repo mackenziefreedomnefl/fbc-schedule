@@ -669,7 +669,7 @@
           onclick: async () => { state.staffClubId = 'all'; await loadAllSchedules(); renderBody(); renderTopbar(); },
         }, 'All'));
       }
-      chip.appendChild(el('button', { class: 'primary', onclick: openLoginModal }, 'Sign in'));
+      chip.appendChild(el('button', { class: 'primary', onclick: openLoginModal }, 'Admin'));
     }
   }
 
@@ -2322,7 +2322,7 @@
 
   function openLoginModal() {
     const content = el('div');
-    content.appendChild(el('h2', {}, 'Sign in'));
+    content.appendChild(el('h2', {}, 'Admin'));
     content.appendChild(el('p', { class: 'muted' }, 'Enter your manager or owner credentials.'));
 
     const emailIn = el('input', { type: 'text', placeholder: 'email or username', autocomplete: 'username' });
@@ -2350,7 +2350,7 @@
     content.appendChild(errDiv);
     content.appendChild(el('div', { class: 'modal-actions' }, [
       el('button', { onclick: closeModal }, 'Cancel'),
-      el('button', { class: 'primary', onclick: submit }, 'Sign in'),
+      el('button', { class: 'primary', onclick: submit }, 'Admin'),
     ]));
     openModal(content);
     setTimeout(() => emailIn.focus(), 50);
