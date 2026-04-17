@@ -1288,12 +1288,24 @@
     }, 'Clear'));
     picker.appendChild(bottomRow);
 
-    // On mobile, mount to body so it overlays as a bottom-sheet.
-    // On desktop, anchor to the cell so it drops beneath the input.
-    if (isMobile) {
-      document.body.appendChild(picker);
-    } else {
-      anchorTd.appendChild(picker);
+    // Mount to body for both mobile and desktop so it's never clipped.
+    // Mobile: bottom-sheet. Desktop: fixed near the cell.
+    document.body.appendChild(picker);
+    if (!isMobile) {
+      const rect = anchorTd.getBoundingClientRect();
+      const pickerH = 300;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow < pickerH && rect.top > pickerH) {
+        picker.style.position = 'fixed';
+        picker.style.left = rect.left + 'px';
+        picker.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        picker.style.top = 'auto';
+      } else {
+        picker.style.position = 'fixed';
+        picker.style.left = rect.left + 'px';
+        picker.style.top = rect.bottom + 4 + 'px';
+      }
+      picker.style.zIndex = '200';
     }
 
     // Close on outside click (desktop only — backdrop handles this on mobile)
