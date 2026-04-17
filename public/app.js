@@ -171,6 +171,12 @@
     return [];
   }
 
+  // Map team names to which totals locations display beneath them
+  const TEAM_LOCATIONS = {
+    'Julington Creek': ['Creek East', 'Creek West'],
+    'Jacksonville Beach': ['Jacksonville Beach'],
+  };
+
   // Map shift text keywords to totals location names.
   // Used for auto-counting staffing totals from shift entries.
   const SHIFT_TO_LOCATION = {
@@ -1548,55 +1554,52 @@
           }
           row.appendChild(el('td', {
             class: 'shift-count-cell',
-            style: 'text-align:center; font-weight:600; font-size:12px; color:var(--muted);',
           }, shiftCount ? String(shiftCount) : '\u2014'));
         }
         tbody.appendChild(row);
+      }
+
+      // Insert location totals right after this team's employees
+      if (isLoggedIn() && data.locations && data.locations.length) {
+        const counts = computeTotals(data);
+        // For multi-team clubs, show each team's relevant locations.
+        // For single-team clubs, show all locations.
+        const teamLocs = showDividers
+          ? (TEAM_LOCATIONS[teamName] || [])
+          : data.locations;
+        teamLocs.forEach(loc => {
+          if (!data.locations.includes(loc)) return;
+          const tr = el('tr', { class: 'totals-row', 'data-totals-club': club.id });
+          tr.appendChild(el('td', { class: 'totals-loc-cell' }, loc));
+          for (let d = 0; d < 7; d++) {
+            const count = counts[loc] ? counts[loc][d] : 0;
+            tr.appendChild(el('td', { class: 'totals-count-cell' }, count ? String(count) : '\u2014'));
+          }
+          tr.appendChild(el('td', {}));
+          tbody.appendChild(tr);
+        });
       }
     });
 
     table.appendChild(tbody);
 
-    // Append location totals into the same table (logged-in only)
-    if (isLoggedIn() && data.locations && data.locations.length) {
-      const counts = computeTotals(data);
-      const tfoot = el('tfoot', { class: 'totals-footer' });
-      tfoot.setAttribute('data-club-id', club.id);
-      const sepRow = el('tr', { class: 'totals-separator' });
-      sepRow.appendChild(el('td', { colspan: String(divColspan), style: 'padding:0; height:3px; background:#1a1a1a;' }));
-      tfoot.appendChild(sepRow);
-      data.locations.forEach(loc => {
-        const tr = el('tr', { class: 'totals-row' });
-        tr.appendChild(el('td', { class: 'totals-loc-cell' }, loc));
-        for (let d = 0; d < 7; d++) {
-          const count = counts[loc] ? counts[loc][d] : 0;
-          tr.appendChild(el('td', { class: 'totals-count-cell' }, count ? String(count) : '\u2014'));
-        }
-        if (isLoggedIn()) tr.appendChild(el('td', {}));
-        tfoot.appendChild(tr);
-      });
-      table.appendChild(tfoot);
-    }
-
     wrap.appendChild(table);
     return wrap;
   }
 
-  // Refresh totals in the tfoot after a cell edit
   function refreshTotals(club, data) {
-    const tfoot = document.querySelector(`.totals-footer[data-club-id="${club.id}"]`);
-    if (!tfoot || !data.locations) return;
+    if (!data.locations) return;
     const counts = computeTotals(data);
-    const countCells = tfoot.querySelectorAll('.totals-count-cell');
-    let idx = 0;
-    data.locations.forEach(loc => {
-      for (let d = 0; d < 7; d++) {
-        if (countCells[idx]) {
+    document.querySelectorAll(`tr[data-totals-club="${club.id}"]`).forEach(row => {
+      const locCell = row.querySelector('.totals-loc-cell');
+      if (!locCell) return;
+      const loc = locCell.textContent;
+      row.querySelectorAll('.totals-count-cell').forEach((cell, d) => {
+        if (d < 7) {
           const count = counts[loc] ? counts[loc][d] : 0;
-          countCells[idx].textContent = count ? String(count) : '\u2014';
+          cell.textContent = count ? String(count) : '\u2014';
         }
-        idx++;
-      }
+      });
     });
   }
 
