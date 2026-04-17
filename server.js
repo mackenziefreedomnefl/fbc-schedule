@@ -1537,29 +1537,47 @@ app.get('/api/export/pdf', ah(async (req, res) => {
     return `${d} ${dt.getMonth()+1}/${dt.getDate()}`;
   });
 
+  // Pre-count total employees to calculate row height that fits one page
+  let totalEmps = 0;
+  let totalTeamDividers = 0;
+  const clubEmps = [];
+  for (const club of clubs) {
+    const { rows: emps } = await pool.query(
+      'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [club.id]);
+    clubEmps.push({ club, emps });
+    totalEmps += emps.length;
+    const teams = new Set(emps.map(e => e.team || ''));
+    if (teams.size > 1) totalTeamDividers += teams.size;
+  }
+
   const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 20 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="FBC-Schedule-${weekStart}.pdf"`);
   doc.pipe(res);
 
   // Title at top
-  doc.fontSize(14).font('Helvetica-Bold').fillColor('#0a1628')
+  doc.fontSize(12).font('Helvetica-Bold').fillColor('#0a1628')
     .text('Freedom Boat Club NEFL — Schedule', { align: 'center' });
-  doc.fontSize(9).font('Helvetica').fillColor('#3a4a60')
+  doc.fontSize(8).font('Helvetica').fillColor('#3a4a60')
     .text(`Week of ${weekStart}`, { align: 'center' });
-  doc.moveDown(0.4);
+  doc.moveDown(0.3);
 
   const startX = 20;
   const tableW = doc.page.width - 40;
-  const nameColW = 115;
+  const nameColW = 110;
   const dayColW = Math.floor((tableW - nameColW) / 7);
   let y = doc.y;
 
-  for (let ci = 0; ci < clubs.length; ci++) {
-    const club = clubs[ci];
+  // Calculate row height to fit everything on one page
+  const usableH = doc.page.height - 20 - y; // bottom margin to current y
+  const overheadPerClub = 16 + 14; // club bar + header
+  const totalOverhead = (clubs.length * overheadPerClub) + (totalTeamDividers * 10) + 8;
+  const rowH = Math.min(14, Math.max(10, Math.floor((usableH - totalOverhead) / totalEmps)));
+  const fontSize = rowH <= 11 ? 6 : 6.5;
 
-    const { rows: emps } = await pool.query(
-      'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [club.id]);
+  for (let ci = 0; ci < clubEmps.length; ci++) {
+    const { club, emps } = clubEmps[ci];
+
     const { rows: schedRows } = await pool.query(
       'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [club.id, weekStart]);
     const scheduleId = schedRows[0] ? schedRows[0].id : null;
@@ -1574,21 +1592,20 @@ app.get('/api/export/pdf', ah(async (req, res) => {
     }
 
     // Club name bar — solid black background
-    if (y > doc.page.height - 60) { doc.addPage(); y = 20; }
-    doc.rect(startX, y, tableW, 18).fill('#000000');
-    doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff')
-      .text(club.name.toUpperCase(), startX + 6, y + 4, { width: tableW - 12 });
-    y += 18;
+    doc.rect(startX, y, tableW, 16).fill('#000000');
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#ffffff')
+      .text(club.name.toUpperCase(), startX + 6, y + 3, { width: tableW - 12 });
+    y += 16;
 
-    // Column headers — dark blue, larger text
-    const headerH = 16;
+    // Column headers
+    const headerH = 14;
     doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
-    doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff')
-      .text('EMPLOYEE', startX + 4, y + 4, { width: nameColW - 8 });
+    doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('EMPLOYEE', startX + 4, y + 3, { width: nameColW - 8 });
     for (let d = 0; d < 7; d++) {
       const x = startX + nameColW + d * dayColW;
       doc.rect(x, y, dayColW, headerH).fill('#1a3a6e');
-      doc.fillColor('#ffffff').fontSize(7).text(dayHeaders[d], x + 2, y + 4, { width: dayColW - 4, align: 'center' });
+      doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 3, { width: dayColW - 4, align: 'center' });
     }
     // Grid lines on header
     doc.lineWidth(0.75).strokeColor('#333333');
@@ -1617,27 +1634,21 @@ app.get('/api/export/pdf', ah(async (req, res) => {
     for (const teamName of sortedKeys) {
       // Team divider
       if (sortedKeys.length > 1 && teamName) {
-        if (y > doc.page.height - 30) { doc.addPage(); y = 20; }
-        doc.rect(startX, y, tableW, 12).fill('#d0d8e8').stroke('#9aa8c0');
-        doc.fontSize(6).font('Helvetica-Bold').fillColor('#2a3a55')
+        doc.rect(startX, y, tableW, 10).fill('#d0d8e8');
+        doc.fontSize(5.5).font('Helvetica-Bold').fillColor('#2a3a55')
           .text(teamName.toUpperCase(), startX + 4, y + 2);
-        y += 12;
+        y += 10;
       }
 
       for (const emp of groups.get(teamName)) {
-        if (y > doc.page.height - 30) { doc.addPage(); y = 20; }
-        const rowH = 16;
-        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#e8edf6';
+        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#d0d3d9';
 
-        // Fill entire row background first
         doc.rect(startX, y, tableW, rowH).fill(rowBg);
 
-        // Name cell — darker background to stand out
         doc.rect(startX, y, nameColW, rowH).fill(rowIdx % 2 === 0 ? '#dce4f0' : '#c4d2e8');
-        doc.fontSize(7).font('Helvetica-Bold').fillColor('#000000')
-          .text(emp.name, startX + 6, y + 4, { width: nameColW - 12 });
+        doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#000000')
+          .text(emp.name, startX + 4, y + (rowH > 12 ? 3 : 2), { width: nameColW - 8 });
 
-        // Day cells text
         for (let d = 0; d < 7; d++) {
           const x = startX + nameColW + d * dayColW;
           const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
@@ -1646,7 +1657,7 @@ app.get('/api/export/pdf', ah(async (req, res) => {
             if (lower.includes('req off')) doc.fillColor('#aa0000');
             else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#0033aa');
             else doc.fillColor('#000000');
-            doc.fontSize(7).font('Helvetica-Bold').text(val, x + 3, y + 4, { width: dayColW - 6, align: 'center' });
+            doc.fontSize(fontSize).font('Helvetica-Bold').text(val, x + 2, y + (rowH > 12 ? 3 : 2), { width: dayColW - 4, align: 'center' });
           }
         }
 
