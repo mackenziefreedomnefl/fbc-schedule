@@ -248,8 +248,14 @@ function locationsForClubName(name) {
 }
 
 // Normalize a date (string or Date) to the Monday of its week as YYYY-MM-DD
+// Safely convert a pg DATE (Date object) or string to YYYY-MM-DD
+function toDateStr(d) {
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  return String(d).slice(0, 10);
+}
+
 function mondayOf(dateLike) {
-  const d = new Date(dateLike + 'T00:00:00Z');
+  const d = new Date(toDateStr(dateLike) + 'T00:00:00Z');
   if (isNaN(d.getTime())) throw new Error('bad date');
   const day = d.getUTCDay(); // 0=Sun..6=Sat
   const diff = (day === 0 ? -6 : 1 - day);
@@ -1211,8 +1217,10 @@ app.post('/api/time-off/:id/approve', ah(async (req, res) => {
   );
 
   // Auto-fill Req Off for each day in the range
-  const start = new Date(tor.start_date + 'T00:00:00Z');
-  const end = new Date(tor.end_date + 'T00:00:00Z');
+  const startStr = toDateStr(tor.start_date);
+  const endStr = toDateStr(tor.end_date);
+  const start = new Date(startStr + 'T00:00:00Z');
+  const end = new Date(endStr + 'T00:00:00Z');
   let filled = 0;
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const weekStart = mondayOf(d.toISOString().slice(0, 10));
@@ -1284,12 +1292,8 @@ app.post('/api/time-off/:id/reset', ah(async (req, res) => {
   // If it was approved, clear the Req Off cells that were auto-filled
   let cleared = 0;
   if (wasApproved) {
-    const start = new Date((tor.start_date instanceof Date
-      ? tor.start_date.toISOString().slice(0, 10)
-      : tor.start_date) + 'T00:00:00Z');
-    const end = new Date((tor.end_date instanceof Date
-      ? tor.end_date.toISOString().slice(0, 10)
-      : tor.end_date) + 'T00:00:00Z');
+    const start = new Date(toDateStr(tor.start_date) + 'T00:00:00Z');
+    const end = new Date(toDateStr(tor.end_date) + 'T00:00:00Z');
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const weekStart = mondayOf(d.toISOString().slice(0, 10));
       const dayOfWeek = d.getUTCDay();
@@ -1338,12 +1342,8 @@ app.post('/api/time-off/reset-all-approved', ah(async (req, res) => {
       `UPDATE time_off_requests SET status = 'pending', resolved_by = NULL, resolved_at = NULL WHERE id = $1`,
       [r.id]
     );
-    const start = new Date((tor.start_date instanceof Date
-      ? tor.start_date.toISOString().slice(0, 10)
-      : tor.start_date) + 'T00:00:00Z');
-    const end = new Date((tor.end_date instanceof Date
-      ? tor.end_date.toISOString().slice(0, 10)
-      : tor.end_date) + 'T00:00:00Z');
+    const start = new Date(toDateStr(tor.start_date) + 'T00:00:00Z');
+    const end = new Date(toDateStr(tor.end_date) + 'T00:00:00Z');
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const weekStart = mondayOf(d.toISOString().slice(0, 10));
       const dayOfWeek = d.getUTCDay();
