@@ -746,6 +746,38 @@
         visibleClubs = state.clubs;
       }
 
+      // Week navigation — one shared bar for all clubs
+      const ws = weekForTab(state.tab);
+      const isCurrentWeek = (state.weekOffset || 0) === 0 && state.tab === 'current';
+      const navBar = el('div', { class: 'week-nav-bar' });
+      navBar.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(-1),
+      }, '\u25C0'));
+      if (isPastView()) {
+        navBar.appendChild(el('span', { class: 'past-week-badge' }, 'PAST'));
+      }
+      navBar.appendChild(el('span', { class: 'week-nav-label' },
+        isCurrentWeek ? 'Current Week' : fmtWeek(ws)));
+      navBar.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(1),
+      }, '\u25B6'));
+      if (isPastView()) {
+        navBar.appendChild(el('button', {
+          class: 'ghost', style: 'font-size:12px;',
+          onclick: () => jumpToCurrentWeek(),
+        }, 'Back to Current'));
+      }
+      navBar.appendChild(el('button', {
+        class: 'ghost', style: 'font-size:12px;',
+        onclick: () => {
+          const firstData = visibleClubs[0] ? (state.weekData[state.tab] || {})[visibleClubs[0].id] : null;
+          if (firstData) window.location.href = `/api/export/pdf?week=${firstData.schedule.week_start}`;
+        },
+      }, 'PDF'));
+      body.appendChild(navBar);
+
       // Shared draft toolbar — one bar for all clubs
       if (!isPastView()) {
         const totalCount = state.pendingChanges.size;
@@ -950,41 +982,8 @@
     const data = (state.weekData[weekKey] || {})[club.id];
     const wrap = el('section', { class: 'club-section' + (isPastView() ? ' past-view' : '') });
 
-    const header = el('div', { class: 'club-header' });
-    header.appendChild(el('h2', {}, club.name));
-
-    // Week nav arrows + date range inline with club name
-    if (isLoggedIn() && data) {
-      const ws = weekForTab(weekKey);
-      header.appendChild(el('button', {
-        class: 'ghost week-nav-btn',
-        onclick: () => navigateWeek(-1),
-        title: 'Previous week',
-      }, '\u25C0'));
-      if (isPastView()) {
-        header.appendChild(el('span', { class: 'past-week-badge' }, 'PAST'));
-      }
-      header.appendChild(el('span', { class: 'club-header-date' }, fmtWeek(ws)));
-      header.appendChild(el('button', {
-        class: 'ghost week-nav-btn',
-        onclick: () => navigateWeek(1),
-        title: 'Next week',
-      }, '\u25B6'));
-      if (isPastView()) {
-        header.appendChild(el('button', {
-          class: 'ghost',
-          style: 'font-size:11px;',
-          onclick: () => jumpToCurrentWeek(),
-        }, 'Back to Current'));
-      }
-      header.appendChild(el('button', {
-        class: 'ghost',
-        style: 'font-size:11px;',
-        onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
-      }, 'PDF'));
-    }
-
-    wrap.appendChild(header);
+    wrap.appendChild(el('div', { class: 'club-header' },
+      el('h2', {}, club.name)));
 
     if (!data) {
       wrap.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No schedule loaded.'));
@@ -994,11 +993,6 @@
 
 
     wrap.appendChild(buildScheduleGrid(club, data));
-    // Totals are a management-only view. Regular staff visiting without an
-    // account just see the schedule and the notes; hide the totals table.
-    if (isLoggedIn()) {
-      wrap.appendChild(buildTotalsGrid(club, data));
-    }
 
     return wrap;
   }
@@ -1558,16 +1552,48 @@
     });
 
     table.appendChild(tbody);
+
+    // Append location totals into the same table (logged-in only)
+    if (isLoggedIn() && data.locations && data.locations.length) {
+      const counts = computeTotals(data);
+      const tfoot = el('tfoot', { class: 'totals-footer' });
+      tfoot.setAttribute('data-club-id', club.id);
+      const sepRow = el('tr', { class: 'totals-separator' });
+      sepRow.appendChild(el('td', { colspan: String(divColspan), style: 'padding:0; height:3px; background:#1a1a1a;' }));
+      tfoot.appendChild(sepRow);
+      data.locations.forEach(loc => {
+        const tr = el('tr', { class: 'totals-row' });
+        tr.appendChild(el('td', { class: 'totals-loc-cell' }, loc));
+        for (let d = 0; d < 7; d++) {
+          const count = counts[loc] ? counts[loc][d] : 0;
+          tr.appendChild(el('td', { class: 'totals-count-cell' }, count ? String(count) : '\u2014'));
+        }
+        if (isLoggedIn()) tr.appendChild(el('td', {}));
+        tfoot.appendChild(tr);
+      });
+      table.appendChild(tfoot);
+    }
+
     wrap.appendChild(table);
     return wrap;
   }
 
-  // Refresh totals display in place after a cell edit
+  // Refresh totals in the tfoot after a cell edit
   function refreshTotals(club, data) {
-    const existing = document.querySelector(`.totals-wrap[data-club-id="${club.id}"]`);
-    if (!existing) return;
-    const newTotals = buildTotalsGrid(club, data);
-    existing.replaceWith(newTotals);
+    const tfoot = document.querySelector(`.totals-footer[data-club-id="${club.id}"]`);
+    if (!tfoot || !data.locations) return;
+    const counts = computeTotals(data);
+    const countCells = tfoot.querySelectorAll('.totals-count-cell');
+    let idx = 0;
+    data.locations.forEach(loc => {
+      for (let d = 0; d < 7; d++) {
+        if (countCells[idx]) {
+          const count = counts[loc] ? counts[loc][d] : 0;
+          countCells[idx].textContent = count ? String(count) : '\u2014';
+        }
+        idx++;
+      }
+    });
   }
 
   // Count staffing per location per day from shift data + pending changes

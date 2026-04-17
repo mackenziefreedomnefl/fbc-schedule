@@ -1021,10 +1021,31 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 }
 .team-edit-btn:hover { opacity: 1; border-color: #fff !important; }
 .team-divider-week {
-  float: right; font-size: 11px; font-weight: 400;
-  opacity: 0.7; text-transform: none; letter-spacing: 0;
+  float: right; font-size: 13px; font-weight: 700;
+  opacity: 1; text-transform: uppercase; letter-spacing: 0.05em;
 }
+
+/* Week nav bar */
+.week-nav-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; justify-content: center;
+}
+.week-nav-label {
+  font-size: 18px; font-weight: 700; color: var(--text);
+}
+
 .shared-draft-bar { position: sticky; top: 48px; z-index: 9; }
+
+/* Totals in table footer */
+.totals-footer .totals-row { background: #1a2a40 !important; }
+.totals-loc-cell {
+  font-weight: 700; color: #fff !important;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.totals-count-cell {
+  text-align: center; font-weight: 700; color: #fff !important;
+  font-size: 13px;
+}
 
 /* Past week navigation */
 .week-nav-btn {
