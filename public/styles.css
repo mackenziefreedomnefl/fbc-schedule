@@ -1003,9 +1003,12 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
   gap: 8px;
   flex-wrap: wrap;
 }
-.club-header-date {
-  font-size: 13px;
-  color: var(--muted);
+.club-header h2 { margin: 0; font-size: 18px; white-space: nowrap; }
+.club-header-nav {
+  display: flex; align-items: center; gap: 6px;
+}
+.week-nav-label {
+  font-size: 16px; font-weight: 700; color: var(--text);
   white-space: nowrap;
 }
 
@@ -1023,15 +1026,6 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 .team-divider-week {
   float: right; font-size: 13px; font-weight: 700;
   opacity: 1; text-transform: uppercase; letter-spacing: 0.05em;
-}
-
-/* Week nav bar */
-.week-nav-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 0; justify-content: center;
-}
-.week-nav-label {
-  font-size: 18px; font-weight: 700; color: var(--text);
 }
 
 .shared-draft-bar { position: sticky; top: 48px; z-index: 9; }
