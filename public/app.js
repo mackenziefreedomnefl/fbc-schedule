@@ -872,28 +872,20 @@
       body.appendChild(reqBar);
 
       visibleClubs.forEach(club => {
-        body.appendChild(renderStaffHeader(club));
-
         const STAFF_WEEKS = ['current', 'next'];
         STAFF_WEEKS.forEach(weekKey => {
           const data = (state.weekData[weekKey] || {})[club.id];
           if (!data) return;
-          const section = el('div', { class: 'staff-week-section' });
-          const heading = el('div', { class: 'club-week-heading' });
-          heading.appendChild(el('span', {}, WEEK_HEADINGS[weekKey] || 'Current Work Week'));
-          if (data.recent_updates && data.recent_updates.length) {
-            heading.appendChild(el('button', {
-              class: 'ghost',
-              style: 'font-size:12px;',
-              onclick: () => openWeekActivityModal(club, data),
-            }, 'View Recent Changes'));
-          }
-          section.appendChild(heading);
+          const section = el('section', { class: 'club-section' });
 
-          const ws = weekForTab(weekKey);
-          if (state.scheduleImages[ws]) {
-            section.appendChild(buildScheduleImageView(ws, weekKey));
-          }
+          // Club header matching manager view
+          const header = el('div', { class: 'club-header' });
+          header.appendChild(el('h2', {}, club.name));
+          const isCurrentWeek = weekKey === 'current';
+          header.appendChild(el('span', { class: 'week-nav-label' },
+            isCurrentWeek ? 'Current Week' : 'Next Week'));
+          section.appendChild(header);
+
           section.appendChild(buildScheduleGrid(club, data));
           body.appendChild(section);
         });
