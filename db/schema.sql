@@ -136,6 +136,19 @@ ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS is_pto BOOLEAN NOT NULL D
 CREATE INDEX IF NOT EXISTS time_off_requests_employee_idx ON time_off_requests(employee_id);
 CREATE INDEX IF NOT EXISTS time_off_requests_status_idx ON time_off_requests(status);
 
+-- Shift change requests (staff submit without login)
+CREATE TABLE IF NOT EXISTS shift_change_requests (
+  id SERIAL PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+  request_text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','denied')),
+  resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS shift_change_requests_status_idx ON shift_change_requests(status);
+
 -- Key/value flags for one-shot migration logic (e.g. example data seeding)
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,

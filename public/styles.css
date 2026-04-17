@@ -969,6 +969,16 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 .timeoff-pto-wrap { display: flex; align-items: center; gap: 4px; }
 .timeoff-pto-label { font-size: 12px; white-space: nowrap; cursor: pointer; }
 
+/* Shift request bar (staff view) */
+.shift-request-bar {
+  text-align: center; padding: 20px; margin-top: 16px;
+}
+.shift-request-text {
+  font-size: 13px; white-space: pre-wrap; flex: 1;
+  background: var(--panel-2); padding: 6px 10px; border-radius: 6px;
+  min-width: 200px;
+}
+
 /* Import bar */
 .import-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
