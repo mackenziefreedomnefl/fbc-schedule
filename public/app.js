@@ -380,41 +380,26 @@
   }
 
   function updateDraftToolbar() {
-    document.querySelectorAll('.draft-toolbar').forEach(bar => {
-      const clubId = Number(bar.getAttribute('data-club-id'));
-      const rs = bar.getAttribute('data-review-status') || 'draft';
-      const count = countForClub(clubId);
-      const badge = bar.querySelector('.review-badge');
-      const saveBtn = bar.querySelector('.draft-save');
-      const undoBtn = bar.querySelector('.draft-undo');
-      const redoBtn = bar.querySelector('.draft-redo');
-      if (badge) {
-        if (count) {
-          badge.textContent = `${count} unsaved change${count === 1 ? '' : 's'}`;
-          badge.className = 'review-badge draft';
-        } else {
-          // Restore the original review-status-based text
-          let text, cls;
-          if (rs === 'approved') {
-            text = 'Approved'; cls = 'review-badge sent';
-          } else if (rs === 'submitted') {
-            text = isOwner() ? 'Changes awaiting your approval' : 'Sent for review — awaiting approval';
-            cls = 'review-badge pending';
-          } else if (rs === 'changes_pending') {
-            text = isOwner() ? 'New changes since last approval' : 'Changes since last approval — send for review';
-            cls = 'review-badge pending';
-          } else {
-            text = isOwner() ? 'Draft — not yet submitted' : 'Draft — not yet sent for review';
-            cls = 'review-badge draft';
-          }
-          badge.textContent = text;
-          badge.className = cls;
-        }
+    // Update the shared draft toolbar
+    const bar = document.querySelector('.shared-draft-bar');
+    if (!bar) return;
+    const totalCount = state.pendingChanges.size;
+    const badge = bar.querySelector('.review-badge');
+    const saveBtn = bar.querySelector('.draft-save');
+    const undoBtn = bar.querySelector('.draft-undo');
+    const redoBtn = bar.querySelector('.draft-redo');
+    if (badge) {
+      if (totalCount) {
+        badge.textContent = `${totalCount} unsaved change${totalCount === 1 ? '' : 's'}`;
+        badge.className = 'review-badge draft';
+      } else {
+        badge.textContent = 'No unsaved changes';
+        badge.className = 'review-badge sent';
       }
-      if (saveBtn) saveBtn.disabled = !count;
-      if (undoBtn) undoBtn.disabled = !undoCountForClub(clubId);
-      if (redoBtn) redoBtn.disabled = !redoCountForClub(clubId);
-    });
+    }
+    if (saveBtn) saveBtn.disabled = !totalCount;
+    if (undoBtn) undoBtn.disabled = !state.undoStack.length;
+    if (redoBtn) redoBtn.disabled = !state.redoStack.length;
   }
 
   // Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Shift+Z / Ctrl+Y = redo, Ctrl+S = save
@@ -772,11 +757,21 @@
 
         draftBar.appendChild(el('button', {
           class: 'draft-undo', disabled: !totalUndo,
-          onclick: () => { if (state.undoStack.length) { const last = state.undoStack[state.undoStack.length - 1]; undoForClub(last.club_id); } },
+          onclick: () => {
+            if (!state.undoStack.length) return;
+            const entry = state.undoStack.pop();
+            state.redoStack.push(entry);
+            applyUndoRedo(entry, entry.old_value);
+          },
         }, 'Undo'));
         draftBar.appendChild(el('button', {
           class: 'draft-redo', disabled: !totalRedo,
-          onclick: () => { if (state.redoStack.length) { const last = state.redoStack[state.redoStack.length - 1]; redoForClub(last.club_id); } },
+          onclick: () => {
+            if (!state.redoStack.length) return;
+            const entry = state.redoStack.pop();
+            state.undoStack.push(entry);
+            applyUndoRedo(entry, entry.new_value);
+          },
         }, 'Redo'));
         draftBar.appendChild(el('button', {
           class: 'primary draft-save', disabled: !totalCount,
