@@ -778,7 +778,7 @@
           onclick: async () => {
             for (const club of visibleClubs) await saveDraftForClub(club.id);
           },
-        }, 'Save Draft'));
+        }, 'Save Changes'));
         draftBar.appendChild(el('button', {
           class: 'ghost',
           onclick: () => openRecentActivityPanel(),
