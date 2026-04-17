@@ -632,7 +632,7 @@
         menu.appendChild(el('button', {
           onclick: () => { window.open('?view=manager', '_blank'); },
         }, 'View as Manager'));
-        menu.appendChild(el('button', { onclick: openAdminPanel }, 'Admin'));
+        menu.appendChild(el('button', { onclick: openAdminPanel }, 'Add/Remove Managers'));
       }
 
       menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
@@ -1757,8 +1757,6 @@
     const startInput = el('input', { type: 'date', class: 'timeoff-date' });
     const endInput = el('input', { type: 'date', class: 'timeoff-date' });
     const noteInput = el('input', { type: 'text', placeholder: 'Note (optional)', class: 'timeoff-note' });
-    const ptoCheck = el('input', { type: 'checkbox', id: 'add-pto-check' });
-    const ptoLabel = el('label', { for: 'add-pto-check', class: 'timeoff-pto-label' }, 'PTO (log in ADP)');
 
     const addRow = el('div', { class: 'timeoff-add-row' });
     addRow.appendChild(empSelect);
@@ -1767,10 +1765,6 @@
     addRow.appendChild(el('span', { class: 'muted' }, 'To'));
     addRow.appendChild(endInput);
     addRow.appendChild(noteInput);
-    const ptoWrap = el('div', { class: 'timeoff-pto-wrap' });
-    ptoWrap.appendChild(ptoCheck);
-    ptoWrap.appendChild(ptoLabel);
-    addRow.appendChild(ptoWrap);
     addRow.appendChild(el('button', {
       class: 'primary',
       onclick: async () => {
@@ -1785,12 +1779,11 @@
               start_date: startInput.value,
               end_date: endInput.value,
               note: noteInput.value,
-              is_pto: ptoCheck.checked,
             },
           });
           toast('Request added');
           empSelect.value = ''; startInput.value = ''; endInput.value = '';
-          noteInput.value = ''; ptoCheck.checked = false;
+          noteInput.value = '';
           refreshList();
         } catch (err) { toast(err.message, 'err'); }
       },
@@ -1820,11 +1813,6 @@
 
         items.forEach(r => {
           const row = el('div', { class: 'timeoff-row timeoff-' + r.status });
-
-          // PTO badge
-          if (r.is_pto) {
-            row.appendChild(el('span', { class: 'timeoff-pto-badge' }, 'PTO'));
-          }
 
           row.appendChild(el('span', { class: 'timeoff-name' }, r.employee_name));
           row.appendChild(el('span', { class: 'timeoff-club muted' }, r.club_name));
@@ -1920,8 +1908,6 @@
     const startIn = el('input', { type: 'date', value: r.start_date });
     const endIn = el('input', { type: 'date', value: r.end_date });
     const noteIn = el('input', { type: 'text', value: r.note || '', placeholder: 'Note (optional)' });
-    const ptoIn = el('input', { type: 'checkbox' });
-    ptoIn.checked = !!r.is_pto;
 
     const form = el('div', { style: 'display:flex; flex-direction:column; gap:10px; margin:12px 0;' });
     const dateRow = el('div', { style: 'display:flex; gap:8px; align-items:center;' });
@@ -1931,10 +1917,6 @@
     dateRow.appendChild(endIn);
     form.appendChild(dateRow);
     form.appendChild(noteIn);
-    const ptoRow = el('div', { style: 'display:flex; gap:6px; align-items:center;' });
-    ptoRow.appendChild(ptoIn);
-    ptoRow.appendChild(el('label', {}, 'PTO (log in ADP)'));
-    form.appendChild(ptoRow);
     content.appendChild(form);
 
     const btnRow = el('div', { style: 'display:flex; gap:8px;' });
@@ -1948,7 +1930,6 @@
               start_date: startIn.value,
               end_date: endIn.value,
               note: noteIn.value,
-              is_pto: ptoIn.checked,
             },
           });
           toast('Updated');
@@ -2296,7 +2277,7 @@
   let adminTab = 'users';
   async function openAdminPanel() {
     const content = el('div');
-    content.appendChild(el('h2', {}, 'Admin'));
+    content.appendChild(el('h2', {}, 'Add/Remove Managers'));
 
     const tabBody = el('div');
     content.appendChild(tabBody);
