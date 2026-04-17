@@ -1052,7 +1052,7 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 }
 .shift-count-cell {
   text-align: center; font-weight: 700; font-size: 13px;
-  color: var(--text); background: var(--panel-2);
+  color: #fff !important; background: #1a2a40 !important;
 }
 
 /* Past week navigation */
