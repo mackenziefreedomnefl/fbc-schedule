@@ -143,6 +143,18 @@ const pool = new Pool({
 const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
+
+// CORS for fbcnefl.com hub
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin === 'https://fbcnefl.com' || origin === 'http://fbcnefl.com') {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('index.html')) {
