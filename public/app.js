@@ -906,21 +906,24 @@
       const clubRedo = redoCountForClub(club.id);
 
       let statusText, statusClass;
+      const hasPendingCellChanges = data && (
+        (data.pending_cells && data.pending_cells.length) ||
+        (data.pending_totals && data.pending_totals.length));
       let statusClickable = false;
       if (clubCount) {
         statusText = `${clubCount} unsaved change${clubCount === 1 ? '' : 's'}`;
         statusClass = 'review-badge draft';
       } else if (rs === 'approved') {
-        statusText = isOwner() ? 'Approved' : 'Approved';
+        statusText = 'Approved';
         statusClass = 'review-badge sent';
       } else if (rs === 'submitted') {
         statusText = isOwner() ? 'Changes awaiting your approval' : 'Sent for review — awaiting approval';
         statusClass = 'review-badge pending';
-        statusClickable = true;
+        statusClickable = hasPendingCellChanges;
       } else if (rs === 'changes_pending') {
         statusText = isOwner() ? 'New changes since last approval' : 'Changes since last approval — send for review';
         statusClass = 'review-badge pending';
-        statusClickable = true;
+        statusClickable = hasPendingCellChanges;
       } else {
         statusText = isOwner() ? 'Draft — not yet submitted' : 'Draft — not yet sent for review';
         statusClass = 'review-badge draft';
