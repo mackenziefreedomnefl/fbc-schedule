@@ -1150,15 +1150,22 @@
       }, 'Approve Time Off'));
       approveRow.appendChild(el('button', {
         class: 'shift-pick-btn shift-pick-reqoff',
-        onclick: async (e) => {
+        onclick: (e) => {
           e.stopPropagation();
-          try {
-            await api(`/api/time-off/${opts.pendingTimeOffId}/deny`, { method: 'POST' });
-            toast('Denied');
-            cleanup();
-            await loadAllSchedules();
-            renderBody();
-          } catch (err) { toast(err.message, 'err'); }
+          const reason = prompt('Why is this being denied? (This note is for managers only — staff won\'t see it.)');
+          if (reason === null) return;
+          (async () => {
+            try {
+              await api(`/api/time-off/${opts.pendingTimeOffId}/deny`, {
+                method: 'POST',
+                body: { deny_reason: reason },
+              });
+              toast('Denied');
+              cleanup();
+              await loadAllSchedules();
+              renderBody();
+            } catch (err) { toast(err.message, 'err'); }
+          })();
         },
       }, 'Deny'));
       picker.appendChild(approveRow);
@@ -2073,6 +2080,12 @@
           row.appendChild(el('span', { class: 'timeoff-dates' },
             r.start_date === r.end_date ? r.start_date : `${r.start_date} to ${r.end_date}`));
           if (r.note) row.appendChild(el('span', { class: 'timeoff-note-text muted' }, r.note));
+          if (r.deny_reason && r.status === 'denied') {
+            row.appendChild(el('span', {
+              class: 'timeoff-note-text',
+              style: 'color:var(--danger); font-style:italic;',
+            }, 'Denied: ' + r.deny_reason));
+          }
 
           const actions = el('div', { class: 'timeoff-actions' });
 
@@ -2093,12 +2106,19 @@
             actions.appendChild(el('button', {
               class: 'ghost danger',
               style: 'font-size:11px; padding:3px 10px;',
-              onclick: async () => {
-                try {
-                  await api(`/api/time-off/${r.id}/deny`, { method: 'POST' });
-                  toast('Denied');
-                  refreshList();
-                } catch (err) { toast(err.message, 'err'); }
+              onclick: () => {
+                const reason = prompt('Why is this being denied? (Managers only — staff won\'t see this.)');
+                if (reason === null) return;
+                (async () => {
+                  try {
+                    await api(`/api/time-off/${r.id}/deny`, {
+                      method: 'POST',
+                      body: { deny_reason: reason },
+                    });
+                    toast('Denied');
+                    refreshList();
+                  } catch (err) { toast(err.message, 'err'); }
+                })();
               },
             }, 'Deny'));
           } else if (r.status === 'approved' || r.status === 'denied') {

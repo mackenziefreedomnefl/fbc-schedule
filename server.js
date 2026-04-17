@@ -1156,7 +1156,7 @@ app.get('/api/time-off', ah(async (req, res) => {
   if (status) { params.push(status); where += ` AND t.status = $${params.length}`; }
   const { rows } = await pool.query(
     `SELECT t.id, t.employee_id, t.club_id, t.start_date, t.end_date, t.note,
-            t.status, t.is_pto, t.created_at, t.resolved_at,
+            t.status, t.is_pto, t.deny_reason, t.created_at, t.resolved_at,
             e.name AS employee_name, c.name AS club_name
        FROM time_off_requests t
        JOIN employees e ON e.id = t.employee_id
@@ -1244,19 +1244,21 @@ app.post('/api/time-off/:id/deny', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
   const reqId = Number(req.params.id);
+  const { deny_reason } = req.body || {};
   const { rows } = await pool.query(
     `SELECT t.*, e.name AS employee_name FROM time_off_requests t
      JOIN employees e ON e.id = t.employee_id WHERE t.id = $1`, [reqId]);
   if (!rows[0]) return res.status(404).json({ error: 'request not found' });
   const tor = rows[0];
   await pool.query(
-    `UPDATE time_off_requests SET status = 'denied', resolved_by = $1, resolved_at = NOW() WHERE id = $2`,
-    [user.id, reqId]
+    `UPDATE time_off_requests SET status = 'denied', resolved_by = $1, resolved_at = NOW(), deny_reason = $2 WHERE id = $3`,
+    [user.id, deny_reason || '', reqId]
   );
   await audit(user, 'time_off_denied', tor.club_id, null, {
     employee_id: tor.employee_id, employee_name: tor.employee_name,
     start_date: tor.start_date instanceof Date ? tor.start_date.toISOString().slice(0, 10) : tor.start_date,
     end_date: tor.end_date instanceof Date ? tor.end_date.toISOString().slice(0, 10) : tor.end_date,
+    deny_reason: deny_reason || '',
   });
   res.json({ ok: true });
 }));
