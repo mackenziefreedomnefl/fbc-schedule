@@ -865,6 +865,15 @@
         ? state.clubs
         : state.clubs.filter(c => c.id === state.staffClubId);
 
+      // Request Shift Change button at top for staff
+      const reqBar = el('div', { class: 'shift-request-bar' });
+      reqBar.appendChild(el('button', {
+        class: 'primary',
+        style: 'font-size:15px; padding:12px 24px;',
+        onclick: () => openStaffShiftRequestForm(),
+      }, 'Request Shift Change'));
+      body.appendChild(reqBar);
+
       visibleClubs.forEach(club => {
         body.appendChild(renderStaffHeader(club));
 
@@ -893,14 +902,6 @@
         });
       });
 
-      // Request Shift Change button for staff
-      const reqBar = el('div', { class: 'shift-request-bar' });
-      reqBar.appendChild(el('button', {
-        class: 'primary',
-        style: 'font-size:15px; padding:12px 24px;',
-        onclick: () => openStaffShiftRequestForm(),
-      }, 'Request Shift Change'));
-      body.appendChild(reqBar);
     }
 
     // Apply any existing filter after new rows are rendered
