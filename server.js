@@ -1670,7 +1670,7 @@ app.get('/api/export/pdf', ah(async (req, res) => {
 
   // Pre-count total employees to calculate row height that fits one page
   let totalEmps = 0;
-  let totalTeamDividers = 0;
+  let totalTeamSections = 0; // each team gets its own header
   const clubEmps = [];
   for (const club of clubs) {
     const { rows: emps } = await pool.query(
@@ -1678,7 +1678,7 @@ app.get('/api/export/pdf', ah(async (req, res) => {
     clubEmps.push({ club, emps });
     totalEmps += emps.length;
     const teams = new Set(emps.map(e => e.team || ''));
-    if (teams.size > 1) totalTeamDividers += teams.size;
+    totalTeamSections += teams.size || 1;
   }
 
   const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 20 });
@@ -1700,11 +1700,12 @@ app.get('/api/export/pdf', ah(async (req, res) => {
   let y = doc.y;
 
   // Calculate row height to fit everything on one page
-  const usableH = doc.page.height - 20 - y; // bottom margin to current y
-  const overheadPerClub = 16 + 14; // club bar + header
-  const totalOverhead = (clubs.length * overheadPerClub) + (totalTeamDividers * 10) + 8;
-  const rowH = Math.min(14, Math.max(10, Math.floor((usableH - totalOverhead) / totalEmps)));
-  const fontSize = rowH <= 11 ? 6 : 6.5;
+  const usableH = doc.page.height - 20 - y;
+  // Each team section: 14 (black header) + 12 (date row) + gap
+  const sectionOverhead = 14 + 12;
+  const totalOverhead = (totalTeamSections * sectionOverhead) + (totalTeamSections * 4);
+  const rowH = Math.min(14, Math.max(9, Math.floor((usableH - totalOverhead) / totalEmps)));
+  const fontSize = rowH <= 10 ? 5.5 : rowH <= 12 ? 6 : 6.5;
 
   for (let ci = 0; ci < clubEmps.length; ci++) {
     const { club, emps } = clubEmps[ci];
@@ -1722,33 +1723,7 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       }
     }
 
-    // Club name bar — solid black background
-    doc.rect(startX, y, tableW, 16).fill('#000000');
-    doc.fontSize(10).font('Helvetica-Bold').fillColor('#ffffff')
-      .text(club.name.toUpperCase(), startX + 6, y + 3, { width: tableW - 12 });
-    y += 16;
-
-    // Column headers
-    const headerH = 14;
-    doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
-    doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#ffffff')
-      .text('EMPLOYEE', startX + 4, y + 3, { width: nameColW - 8 });
-    for (let d = 0; d < 7; d++) {
-      const x = startX + nameColW + d * dayColW;
-      doc.rect(x, y, dayColW, headerH).fill('#1a3a6e');
-      doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 3, { width: dayColW - 4, align: 'center' });
-    }
-    // Grid lines on header
-    doc.lineWidth(0.75).strokeColor('#333333');
-    doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
-    doc.moveTo(startX, y).lineTo(startX, y + headerH).stroke();
-    doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + headerH).stroke();
-    for (let d = 1; d <= 7; d++) {
-      doc.moveTo(startX + nameColW + d * dayColW, y).lineTo(startX + nameColW + d * dayColW, y + headerH).stroke();
-    }
-    y += headerH;
-
-    // Group by team
+    // Group by team — each team gets its own section
     const groups = new Map();
     for (const e of emps) {
       const key = e.team || '';
@@ -1763,13 +1738,28 @@ app.get('/api/export/pdf', ah(async (req, res) => {
 
     let rowIdx = 0;
     for (const teamName of sortedKeys) {
-      // Team divider
-      if (sortedKeys.length > 1 && teamName) {
-        doc.rect(startX, y, tableW, 10).fill('#d0d8e8');
-        doc.fontSize(5.5).font('Helvetica-Bold').fillColor('#2a3a55')
-          .text(teamName.toUpperCase(), startX + 4, y + 2);
-        y += 10;
+      // Section header — black bar with location name
+      const sectionName = (sortedKeys.length > 1 && teamName)
+        ? teamName.toUpperCase()
+        : club.name.toUpperCase();
+      doc.rect(startX, y, tableW, 14).fill('#000000');
+      doc.fontSize(8).font('Helvetica-Bold').fillColor('#ffffff')
+        .text(sectionName, startX + 6, y + 3, { width: tableW - 12 });
+      y += 14;
+
+      // Date header row
+      const headerH = 12;
+      doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
+      doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#ffffff')
+        .text('EMPLOYEE', startX + 4, y + 2, { width: nameColW - 8 });
+      for (let d = 0; d < 7; d++) {
+        const x = startX + nameColW + d * dayColW;
+        doc.rect(x, y, dayColW, headerH).fill('#1a3a6e');
+        doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 2, { width: dayColW - 4, align: 'center' });
       }
+      doc.lineWidth(0.5).strokeColor('#333');
+      doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
+      y += headerH;
 
       for (const emp of groups.get(teamName)) {
         const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#d0d3d9';
@@ -1808,9 +1798,9 @@ app.get('/api/export/pdf', ah(async (req, res) => {
         y += rowH;
         rowIdx++;
       }
-    }
 
-    y += 8; // gap between clubs
+      y += 4; // gap between location sections
+    }
   }
 
   doc.end();
