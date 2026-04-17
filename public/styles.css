@@ -123,12 +123,13 @@ main {
 
 /* Static shift notice above the week heading */
 .shift-notice {
-  padding: 10px 14px;
-  margin-bottom: 14px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1.5;
   color: var(--text);
   display: flex;
   align-items: flex-start;
@@ -1019,6 +1020,11 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
   opacity: 0.7;
 }
 .team-edit-btn:hover { opacity: 1; border-color: #fff !important; }
+.team-divider-week {
+  float: right; font-size: 11px; font-weight: 400;
+  opacity: 0.7; text-transform: none; letter-spacing: 0;
+}
+.shared-draft-bar { position: sticky; top: 48px; z-index: 9; }
 
 /* Past week navigation */
 .week-nav-btn {
