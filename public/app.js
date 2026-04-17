@@ -633,6 +633,7 @@
           onclick: () => { window.open('?view=manager', '_blank'); },
         }, 'View as Manager'));
         menu.appendChild(el('button', { onclick: openAdminPanel }, 'Add/Remove Managers'));
+        menu.appendChild(el('button', { onclick: () => openImportScheduleModal() }, 'Import from Image'));
       }
 
       menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
@@ -746,38 +747,6 @@
         visibleClubs = state.clubs;
       }
 
-      // Week navigation — one shared bar for all clubs
-      const ws = weekForTab(state.tab);
-      const isCurrentWeek = (state.weekOffset || 0) === 0 && state.tab === 'current';
-      const navBar = el('div', { class: 'week-nav-bar' });
-      navBar.appendChild(el('button', {
-        class: 'ghost week-nav-btn',
-        onclick: () => navigateWeek(-1),
-      }, '\u25C0'));
-      if (isPastView()) {
-        navBar.appendChild(el('span', { class: 'past-week-badge' }, 'PAST'));
-      }
-      navBar.appendChild(el('span', { class: 'week-nav-label' },
-        isCurrentWeek ? 'Current Week' : fmtWeek(ws)));
-      navBar.appendChild(el('button', {
-        class: 'ghost week-nav-btn',
-        onclick: () => navigateWeek(1),
-      }, '\u25B6'));
-      if (isPastView()) {
-        navBar.appendChild(el('button', {
-          class: 'ghost', style: 'font-size:12px;',
-          onclick: () => jumpToCurrentWeek(),
-        }, 'Back to Current'));
-      }
-      navBar.appendChild(el('button', {
-        class: 'ghost', style: 'font-size:12px;',
-        onclick: () => {
-          const firstData = visibleClubs[0] ? (state.weekData[state.tab] || {})[visibleClubs[0].id] : null;
-          if (firstData) window.location.href = `/api/export/pdf?week=${firstData.schedule.week_start}`;
-        },
-      }, 'PDF'));
-      body.appendChild(navBar);
-
       // Shared draft toolbar — one bar for all clubs
       if (!isPastView()) {
         const totalCount = state.pendingChanges.size;
@@ -855,18 +824,6 @@
         }
 
         body.appendChild(draftBar);
-      }
-
-      // Import Schedule button — owners only
-      if (!isPastView() && isOwner()) {
-        const importBar = el('div', { class: 'import-bar' });
-        importBar.appendChild(el('button', {
-          class: 'primary import-schedule-btn',
-          onclick: () => openImportScheduleModal(),
-        }, 'Import Schedule from Image'));
-        importBar.appendChild(el('span', { class: 'muted', style: 'font-size:12px;' },
-          'Upload a photo or PDF of your schedule — AI will read and fill the grid'));
-        body.appendChild(importBar);
       }
 
       visibleClubs.forEach((club, idx) => {
@@ -982,8 +939,44 @@
     const data = (state.weekData[weekKey] || {})[club.id];
     const wrap = el('section', { class: 'club-section' + (isPastView() ? ' past-view' : '') });
 
-    wrap.appendChild(el('div', { class: 'club-header' },
-      el('h2', {}, club.name)));
+    const header = el('div', { class: 'club-header' });
+    header.appendChild(el('h2', {}, club.name));
+
+    // Week nav centered in the header
+    if (isLoggedIn()) {
+      const ws = weekForTab(weekKey);
+      const isCurrentWeek = (state.weekOffset || 0) === 0 && state.tab === 'current';
+      const nav = el('div', { class: 'club-header-nav' });
+      nav.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(-1),
+      }, '\u25C0'));
+      if (isPastView()) nav.appendChild(el('span', { class: 'past-week-badge' }, 'PAST'));
+      nav.appendChild(el('span', { class: 'week-nav-label' },
+        isCurrentWeek ? 'Current Week' : fmtWeek(ws)));
+      nav.appendChild(el('button', {
+        class: 'ghost week-nav-btn',
+        onclick: () => navigateWeek(1),
+      }, '\u25B6'));
+      if (isPastView()) {
+        nav.appendChild(el('button', {
+          class: 'ghost', style: 'font-size:11px;',
+          onclick: () => jumpToCurrentWeek(),
+        }, 'Back to Current'));
+      }
+      header.appendChild(nav);
+    }
+
+    // PDF button pushed to the right
+    if (isLoggedIn() && data) {
+      header.appendChild(el('div', { class: 'spacer' }));
+      header.appendChild(el('button', {
+        class: 'ghost', style: 'font-size:11px;',
+        onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
+      }, 'PDF'));
+    }
+
+    wrap.appendChild(header);
 
     if (!data) {
       wrap.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No schedule loaded.'));
