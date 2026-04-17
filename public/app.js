@@ -1745,67 +1745,138 @@
   function openStaffShiftRequestForm() {
     const content = el('div');
     content.appendChild(el('h2', {}, 'Request Shift Change'));
-    content.appendChild(el('p', { class: 'muted' },
-      'Need to swap a shift, change a day, or let your manager know about a conflict? Submit your request below.'));
 
-    const empSelect = el('select', { style: 'width:100%; padding:10px; font-size:16px; margin:8px 0;' });
+    // Step 1: Select name
+    const fieldStyle = 'width:100%; padding:10px; font-size:16px; margin:4px 0 12px; border:1px solid var(--border); border-radius:8px;';
+    const labelStyle = 'font-weight:600; font-size:14px; display:block; margin:8px 0 2px;';
+
+    content.appendChild(el('label', { style: labelStyle }, 'Your Name'));
+    const empSelect = el('select', { style: fieldStyle });
     empSelect.appendChild(el('option', { value: '' }, 'Select your name...'));
+    // Build flat list of all employees across clubs
+    const allEmps = [];
     state.clubs.forEach(club => {
-      const weekKey = 'current';
-      const data = (state.weekData[weekKey] || {})[club.id];
+      const data = (state.weekData['current'] || {})[club.id];
       if (!data) return;
-      const optgroup = el('optgroup', { label: club.name });
-      data.employees.forEach(e => {
-        optgroup.appendChild(el('option', { value: e.id }, e.name));
-      });
-      empSelect.appendChild(optgroup);
+      data.employees.forEach(e => allEmps.push({ ...e, clubName: club.name }));
+    });
+    allEmps.forEach(e => {
+      empSelect.appendChild(el('option', { value: e.id }, e.name));
     });
     content.appendChild(empSelect);
 
-    // Date(s) for the shift change
-    content.appendChild(el('label', { style: 'font-weight:600; font-size:14px; display:block; margin:8px 0 4px;' }, 'Date(s)'));
-    const dateRow = el('div', { style: 'display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;' });
-    const dateInput = el('input', { type: 'date', style: 'padding:8px; font-size:15px;' });
-    const addDateBtn = el('button', { class: 'ghost', style: 'font-size:13px;' }, '+ Add another date');
-    const dateList = el('div', { style: 'display:flex; gap:6px; flex-wrap:wrap;' });
-    const selectedDates = [];
+    // Step 2: Reason
+    content.appendChild(el('label', { style: labelStyle }, 'Reason'));
+    const reasonBtns = el('div', { class: 'shift-req-reasons' });
+    const reasons = [
+      { value: 'swap', label: 'Swap Shift', desc: 'Trade a shift with a coworker' },
+      { value: 'coverage', label: 'Need Coverage', desc: 'Need someone to cover your shift' },
+      { value: 'conflict', label: 'Schedule Conflict', desc: 'Appointment, emergency, etc.' },
+      { value: 'other', label: 'Other', desc: 'Something else' },
+    ];
+    let selectedReason = '';
+    const detailsWrap = el('div', { style: 'margin-top:8px;' });
 
-    const renderDates = () => {
-      dateList.innerHTML = '';
-      selectedDates.forEach((d, i) => {
-        const tag = el('span', {
-          style: 'display:inline-flex; align-items:center; gap:4px; background:var(--panel-2); padding:4px 10px; border-radius:16px; font-size:13px;',
-        });
-        tag.appendChild(document.createTextNode(d));
-        tag.appendChild(el('button', {
-          style: 'background:none; border:none; cursor:pointer; color:var(--danger); font-size:14px; padding:0 2px;',
-          onclick: () => { selectedDates.splice(i, 1); renderDates(); },
-        }, '\u00d7'));
-        dateList.appendChild(tag);
+    reasons.forEach(r => {
+      const btn = el('button', {
+        class: 'shift-req-reason-btn',
+        onclick: () => {
+          selectedReason = r.value;
+          reasonBtns.querySelectorAll('.shift-req-reason-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          renderDetails();
+        },
       });
-    };
+      btn.appendChild(el('div', { style: 'font-weight:600;' }, r.label));
+      btn.appendChild(el('div', { style: 'font-size:12px; color:var(--muted);' }, r.desc));
+      reasonBtns.appendChild(btn);
+    });
+    content.appendChild(reasonBtns);
+    content.appendChild(detailsWrap);
 
-    addDateBtn.addEventListener('click', () => {
-      if (dateInput.value && !selectedDates.includes(dateInput.value)) {
-        selectedDates.push(dateInput.value);
-        dateInput.value = '';
-        renderDates();
+    // Dynamic detail fields based on reason
+    const formState = { dates: [], swapWith: '', details: '' };
+
+    function buildDatePicker() {
+      const wrap = el('div');
+      wrap.appendChild(el('label', { style: labelStyle }, 'Date(s)'));
+      const row = el('div', { style: 'display:flex; gap:8px; align-items:center; flex-wrap:wrap;' });
+      const dateIn = el('input', { type: 'date', style: 'padding:8px; font-size:15px;' });
+      const addBtn = el('button', { class: 'ghost', style: 'font-size:13px;' }, '+ Add date');
+      const list = el('div', { style: 'display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;' });
+
+      const render = () => {
+        list.innerHTML = '';
+        formState.dates.forEach((d, i) => {
+          const tag = el('span', { style: 'display:inline-flex; align-items:center; gap:4px; background:var(--panel-2); padding:4px 10px; border-radius:16px; font-size:13px;' });
+          tag.appendChild(document.createTextNode(d));
+          tag.appendChild(el('button', {
+            style: 'background:none; border:none; cursor:pointer; color:var(--danger); font-size:14px; padding:0 2px;',
+            onclick: () => { formState.dates.splice(i, 1); render(); },
+          }, '\u00d7'));
+          list.appendChild(tag);
+        });
+      };
+      addBtn.onclick = () => {
+        if (dateIn.value && !formState.dates.includes(dateIn.value)) {
+          formState.dates.push(dateIn.value);
+          dateIn.value = '';
+          render();
+        }
+      };
+      dateIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
+      row.appendChild(dateIn);
+      row.appendChild(addBtn);
+      wrap.appendChild(row);
+      wrap.appendChild(list);
+      return wrap;
+    }
+
+    function renderDetails() {
+      detailsWrap.innerHTML = '';
+      formState.dates = [];
+      formState.swapWith = '';
+      formState.details = '';
+
+      if (selectedReason === 'swap') {
+        detailsWrap.appendChild(buildDatePicker());
+        detailsWrap.appendChild(el('label', { style: labelStyle }, 'Who do you want to swap with?'));
+        const swapSelect = el('select', { style: fieldStyle });
+        swapSelect.appendChild(el('option', { value: '' }, 'Select coworker...'));
+        allEmps.forEach(e => {
+          swapSelect.appendChild(el('option', { value: e.name }, e.name));
+        });
+        swapSelect.addEventListener('change', () => { formState.swapWith = swapSelect.value; });
+        detailsWrap.appendChild(swapSelect);
+        detailsWrap.appendChild(el('label', { style: labelStyle }, 'Additional details (optional)'));
+        const notes = el('textarea', { placeholder: 'Any other details about the swap...', style: fieldStyle + ' min-height:60px; resize:vertical;' });
+        notes.addEventListener('input', () => { formState.details = notes.value; });
+        detailsWrap.appendChild(notes);
+      } else if (selectedReason === 'coverage') {
+        detailsWrap.appendChild(buildDatePicker());
+        detailsWrap.appendChild(el('label', { style: labelStyle }, 'Why do you need coverage?'));
+        const reason = el('textarea', { placeholder: 'Please provide a reason...', style: fieldStyle + ' min-height:60px; resize:vertical;' });
+        reason.addEventListener('input', () => { formState.details = reason.value; });
+        detailsWrap.appendChild(reason);
+      } else if (selectedReason === 'conflict') {
+        detailsWrap.appendChild(buildDatePicker());
+        detailsWrap.appendChild(el('label', { style: labelStyle }, 'What is the conflict?'));
+        const reason = el('textarea', { placeholder: 'Appointment, family emergency, etc.', style: fieldStyle + ' min-height:60px; resize:vertical;' });
+        reason.addEventListener('input', () => { formState.details = reason.value; });
+        detailsWrap.appendChild(reason);
+      } else if (selectedReason === 'other') {
+        detailsWrap.appendChild(buildDatePicker());
+        detailsWrap.appendChild(el('label', { style: labelStyle }, 'Describe your request'));
+        const reason = el('textarea', { placeholder: 'What do you need?', style: fieldStyle + ' min-height:80px; resize:vertical;' });
+        reason.addEventListener('input', () => { formState.details = reason.value; });
+        detailsWrap.appendChild(reason);
       }
-    });
-    dateInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); addDateBtn.click(); }
-    });
+    }
 
-    dateRow.appendChild(dateInput);
-    dateRow.appendChild(addDateBtn);
-    content.appendChild(dateRow);
-    content.appendChild(dateList);
-
-    const textArea = el('textarea', {
-      placeholder: 'What do you need?\n\nExamples:\n\u2022 "I need to swap my Beach shift with someone"\n\u2022 "Can I switch with Nick?"\n\u2022 "I can\'t work — looking for cover"',
-      style: 'width:100%; min-height:100px; padding:10px; font-size:15px; margin:8px 0; border:1px solid var(--border); border-radius:8px; resize:vertical;',
-    });
-    content.appendChild(textArea);
+    // Disclaimer
+    const disclaimer = el('div', { style: 'margin:14px 0; padding:10px 14px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:8px; font-size:13px; color:#92400e;' },
+      'You are still responsible for this shift until it is officially removed from your schedule.');
+    content.appendChild(disclaimer);
 
     const errDiv = el('div', { class: 'error' });
     content.appendChild(errDiv);
@@ -1817,10 +1888,16 @@
         onclick: async () => {
           errDiv.textContent = '';
           if (!empSelect.value) { errDiv.textContent = 'Please select your name'; return; }
-          if (!selectedDates.length) { errDiv.textContent = 'Please add at least one date'; return; }
-          if (!textArea.value.trim()) { errDiv.textContent = 'Please describe your request'; return; }
-          const dateStr = selectedDates.join(', ');
-          const fullText = `Dates: ${dateStr}\n\n${textArea.value.trim()}`;
+          if (!selectedReason) { errDiv.textContent = 'Please select a reason'; return; }
+          if (!formState.dates.length) { errDiv.textContent = 'Please add at least one date'; return; }
+          if (selectedReason === 'swap' && !formState.swapWith) { errDiv.textContent = 'Please select who you want to swap with'; return; }
+          if (selectedReason === 'coverage' && !formState.details.trim()) { errDiv.textContent = 'Please provide a reason for needing coverage'; return; }
+
+          const reasonLabel = reasons.find(r => r.value === selectedReason).label;
+          let fullText = `Reason: ${reasonLabel}\nDates: ${formState.dates.join(', ')}`;
+          if (formState.swapWith) fullText += `\nSwap with: ${formState.swapWith}`;
+          if (formState.details.trim()) fullText += `\n\n${formState.details.trim()}`;
+
           try {
             await api('/api/shift-requests', {
               method: 'POST',
