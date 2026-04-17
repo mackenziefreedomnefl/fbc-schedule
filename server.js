@@ -1670,15 +1670,17 @@ app.get('/api/export/pdf', ah(async (req, res) => {
 
   // Pre-count total employees to calculate row height that fits one page
   let totalEmps = 0;
-  let totalTeamSections = 0; // each team gets its own header
+  let totalSections = 0; // clubs (not teams — Jacksonville is one section)
+  let totalTeamDividers = 0;
   const clubEmps = [];
   for (const club of clubs) {
     const { rows: emps } = await pool.query(
       'SELECT id, name, team FROM employees WHERE club_id = $1 AND archived = FALSE ORDER BY sort_order, id', [club.id]);
     clubEmps.push({ club, emps });
     totalEmps += emps.length;
+    totalSections++;
     const teams = new Set(emps.map(e => e.team || ''));
-    totalTeamSections += teams.size || 1;
+    if (teams.size > 1) totalTeamDividers += teams.size - 1; // dividers between teams
   }
 
   const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 20 });
@@ -1705,9 +1707,9 @@ app.get('/api/export/pdf', ah(async (req, res) => {
 
   // Calculate row height to fit everything on one page
   const usableH = doc.page.height - 20 - y;
-  // Each team section: 14 (black header) + 12 (date row) + gap
-  const sectionOverhead = 14 + 12;
-  const totalOverhead = (totalTeamSections * sectionOverhead) + (totalTeamSections * 4);
+  // Each club: 14 (black header) + 12 (date row) + gap. Team dividers: 10 each.
+  const sectionOverhead = 14 + 12 + 6;
+  const totalOverhead = (totalSections * sectionOverhead) + (totalTeamDividers * 12);
   const rowH = Math.min(14, Math.max(9, Math.floor((usableH - totalOverhead) / totalEmps)));
   const fontSize = rowH <= 10 ? 5.5 : rowH <= 12 ? 6 : 6.5;
 
@@ -1727,7 +1729,7 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       }
     }
 
-    // Group by team — each team gets its own section
+    // Group by team
     const groups = new Map();
     for (const e of emps) {
       const key = e.team || '';
@@ -1739,32 +1741,44 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       const ai = order.indexOf(a); const bi = order.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
+    const multiTeam = sortedKeys.length > 1;
+
+    // Club header — black bar
+    doc.rect(startX, y, tableW, 14).fill('#000000');
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#ffffff')
+      .text(club.name.toUpperCase(), startX + 6, y + 3, { width: tableW - 12 });
+    y += 14;
+
+    // Date header row
+    const headerH = 12;
+    doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
+    doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('EMPLOYEE', startX + 4, y + 2, { width: nameColW - 8 });
+    for (let d = 0; d < 7; d++) {
+      const x = dayX(d);
+      const w = dayW(d);
+      doc.rect(x, y, w, headerH).fill('#1a3a6e');
+      doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 2, { width: w - 4, align: 'center' });
+    }
+    doc.lineWidth(0.5).strokeColor('#333');
+    doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
+    y += headerH;
 
     let rowIdx = 0;
-    for (const teamName of sortedKeys) {
-      // Section header — black bar with location name
-      const sectionName = (sortedKeys.length > 1 && teamName)
-        ? teamName.toUpperCase()
-        : club.name.toUpperCase();
-      doc.rect(startX, y, tableW, 14).fill('#000000');
-      doc.fontSize(8).font('Helvetica-Bold').fillColor('#ffffff')
-        .text(sectionName, startX + 6, y + 3, { width: tableW - 12 });
-      y += 14;
+    for (let ti = 0; ti < sortedKeys.length; ti++) {
+      const teamName = sortedKeys[ti];
 
-      // Date header row
-      const headerH = 12;
-      doc.rect(startX, y, nameColW, headerH).fill('#1a3a6e');
-      doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#ffffff')
-        .text('EMPLOYEE', startX + 4, y + 2, { width: nameColW - 8 });
-      for (let d = 0; d < 7; d++) {
-        const x = dayX(d);
-        const w = dayW(d);
-        doc.rect(x, y, w, headerH).fill('#1a3a6e');
-        doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 2, { width: w - 4, align: 'center' });
+      // Team divider for multi-team clubs (thick black border + label)
+      if (multiTeam && ti > 0) {
+        doc.lineWidth(2.5).strokeColor('#000000');
+        doc.moveTo(startX, y).lineTo(startX + tableW, y).stroke();
       }
-      doc.lineWidth(0.5).strokeColor('#333');
-      doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
-      y += headerH;
+      if (multiTeam && teamName) {
+        doc.rect(startX, y, tableW, 10).fill('#2a2a2a');
+        doc.fontSize(5.5).font('Helvetica-Bold').fillColor('#ffffff')
+          .text(teamName.toUpperCase(), startX + 4, y + 2);
+        y += 10;
+      }
 
       for (const emp of groups.get(teamName)) {
         const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#d0d3d9';
