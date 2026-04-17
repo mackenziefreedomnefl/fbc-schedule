@@ -105,18 +105,25 @@
     setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2200);
   }
 
+  // Use local date math (not UTC) to avoid timezone shifts
+  function localDateStr(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
   function mondayOf(d) {
     const date = new Date(d);
     const day = date.getDay();
     const diff = day === 0 ? -6 : 1 - day;
     date.setDate(date.getDate() + diff);
-    return date.toISOString().slice(0, 10);
+    return localDateStr(date);
   }
 
   function addDays(dateStr, n) {
     const d = new Date(dateStr + 'T00:00:00');
     d.setDate(d.getDate() + n);
-    return d.toISOString().slice(0, 10);
+    return localDateStr(d);
   }
 
   function fmtWeek(weekStart) {
@@ -2279,24 +2286,6 @@
     const content = el('div');
     content.appendChild(el('h2', {}, 'Admin'));
 
-    const tabs = el('div', { class: 'tabs', style: 'margin-bottom:14px;' });
-    const usersTab = el('button', {
-      class: adminTab === 'users' ? 'active' : '',
-      onclick: () => { adminTab = 'users'; renderTab(); },
-    }, 'Users');
-    const activityTab = el('button', {
-      class: adminTab === 'activity' ? 'active' : '',
-      onclick: () => { adminTab = 'activity'; renderTab(); },
-    }, 'Activity');
-    const importTab = el('button', {
-      class: adminTab === 'import' ? 'active' : '',
-      onclick: () => { adminTab = 'import'; renderTab(); },
-    }, 'Import');
-    tabs.appendChild(usersTab);
-    tabs.appendChild(activityTab);
-    tabs.appendChild(importTab);
-    content.appendChild(tabs);
-
     const tabBody = el('div');
     content.appendChild(tabBody);
 
@@ -2308,18 +2297,8 @@
       }, 'Download full backup (JSON)'),
     ]));
 
-    function renderTab() {
-      usersTab.className = adminTab === 'users' ? 'active' : '';
-      activityTab.className = adminTab === 'activity' ? 'active' : '';
-      importTab.className = adminTab === 'import' ? 'active' : '';
-      tabBody.innerHTML = '';
-      if (adminTab === 'users') renderUsersTab(tabBody);
-      else if (adminTab === 'activity') renderActivityTab(tabBody);
-      else if (adminTab === 'import') renderImportTab(tabBody);
-    }
-
     openModal(content, { wide: true });
-    renderTab();
+    renderUsersTab(tabBody);
   }
 
   async function renderUsersTab(container) {
