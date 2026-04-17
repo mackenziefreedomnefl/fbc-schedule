@@ -300,6 +300,36 @@ async function main() {
     // Seed time off requests (one-shot)
     await seedTimeOffRequests(pool);
 
+    // One-shot: reset all approved/denied time off requests back to pending
+    // and clear auto-filled Req Off cells. Owner wants managers to approve.
+    const { rows: resetFlag } = await pool.query(
+      "SELECT value FROM app_state WHERE key = 'timeoff_reset_v1'"
+    );
+    if (!resetFlag[0]) {
+      const { rows: approvedReqs } = await pool.query(
+        "SELECT t.id, t.employee_id, t.club_id, t.start_date, t.end_date FROM time_off_requests t WHERE t.status IN ('approved', 'denied')"
+      );
+      for (const tor of approvedReqs) {
+        const start = new Date((tor.start_date instanceof Date ? tor.start_date.toISOString().slice(0, 10) : tor.start_date) + 'T00:00:00Z');
+        const end = new Date((tor.end_date instanceof Date ? tor.end_date.toISOString().slice(0, 10) : tor.end_date) + 'T00:00:00Z');
+        for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+          const ws = mondayOfLocal(d.toISOString().slice(0, 10));
+          const dayOfWeek = d.getUTCDay();
+          const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+          const { rows: sr } = await pool.query('SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2', [tor.club_id, ws]);
+          if (sr[0]) {
+            await pool.query(
+              "UPDATE shifts SET shift_text = '' WHERE schedule_id = $1 AND employee_id = $2 AND day_index = $3 AND shift_text = 'Req Off'",
+              [sr[0].id, tor.employee_id, dayIndex]
+            );
+          }
+        }
+      }
+      await pool.query("UPDATE time_off_requests SET status = 'pending', resolved_by = NULL, resolved_at = NULL WHERE status IN ('approved', 'denied')");
+      await pool.query("INSERT INTO app_state (key, value) VALUES ('timeoff_reset_v1', NOW()::text) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value");
+      if (approvedReqs.length) console.log(`[migrate] reset ${approvedReqs.length} time off requests back to pending`);
+    }
+
     console.log('[migrate] done.');
   } catch (err) {
     console.error('[migrate] failed:', err);
