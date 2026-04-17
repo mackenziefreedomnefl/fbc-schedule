@@ -585,6 +585,8 @@ button.review-badge-clickable:hover {
 .day-cell:hover .shift-picker-btn,
 .day-cell:focus-within .shift-picker-btn { opacity: 0.6; }
 .shift-picker-btn:hover { opacity: 1 !important; }
+/* On mobile (detected via body class added by JS) always show arrow */
+body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; padding: 8px 10px; }
 
 .shift-picker {
   position: absolute; top: 100%; left: 0; z-index: 30;
@@ -625,53 +627,38 @@ button.review-badge-clickable:hover {
   background: var(--panel);
 }
 
-/* Mobile: bottom-sheet shift picker with big tap targets */
-@media (max-width: 768px) {
-  /* Picker dropdown arrow always visible on mobile */
-  .shift-picker-btn {
-    opacity: 0.8 !important;
-    font-size: 12px;
-    padding: 8px 10px;
-    min-width: 32px; min-height: 32px;
-  }
-  /* Fullscreen dim backdrop behind the sheet */
-  .shift-picker-backdrop {
-    display: block; position: fixed; inset: 0;
-    background: rgba(0,0,0,0.4); z-index: 100;
-    animation: fadeIn 0.15s ease-out;
-  }
-  /* Bottom sheet layout */
-  .shift-picker {
-    position: fixed !important;
-    left: 0 !important; right: 0 !important; bottom: 0 !important;
-    top: auto !important;
-    max-width: 100% !important; width: 100%;
-    min-width: 0 !important;
-    border-radius: 16px 16px 0 0;
-    padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-    z-index: 101;
-    box-shadow: 0 -6px 20px rgba(0,0,0,0.2);
-    animation: slideUp 0.2s ease-out;
-    max-height: 75vh; overflow-y: auto;
-    gap: 12px;
-  }
-  .shift-pick-label { font-size: 13px; padding: 4px 2px 2px; }
-  .shift-pick-row { gap: 8px; }
-  .shift-pick-btn {
-    padding: 14px 18px;
-    font-size: 16px;
-    min-height: 48px;
-    flex: 1;
-    min-width: 80px;
-  }
-  .shift-pick-loc-tag { font-size: 14px; padding: 8px 12px; }
-  .shift-pick-other-input {
-    padding: 12px 14px;
-    font-size: 16px;
-    min-height: 44px;
-  }
-  .shift-pick-other-wrap { gap: 8px; }
+/* Mobile bottom-sheet shift picker — applied via .mobile-picker class
+   added by JS (can't use @media because virtual viewport is 1100px) */
+.shift-picker.mobile-picker {
+  position: fixed !important;
+  left: 0 !important; right: 0 !important; bottom: 0 !important;
+  top: auto !important;
+  max-width: 100% !important; width: 100%;
+  min-width: 0 !important;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  z-index: 101;
+  box-shadow: 0 -6px 20px rgba(0,0,0,0.2);
+  animation: slideUp 0.2s ease-out;
+  max-height: 75vh; overflow-y: auto;
+  gap: 12px;
 }
+.mobile-picker .shift-pick-label { font-size: 13px; padding: 4px 2px 2px; }
+.mobile-picker .shift-pick-row { gap: 8px; }
+.mobile-picker .shift-pick-btn {
+  padding: 14px 18px;
+  font-size: 16px;
+  min-height: 48px;
+  flex: 1;
+  min-width: 80px;
+}
+.mobile-picker .shift-pick-loc-tag { font-size: 14px; padding: 8px 12px; }
+.mobile-picker .shift-pick-other-input {
+  padding: 12px 14px;
+  font-size: 16px;
+  min-height: 44px;
+}
+.mobile-picker .shift-pick-other-wrap { gap: 8px; }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
