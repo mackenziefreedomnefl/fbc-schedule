@@ -1696,7 +1696,11 @@ app.get('/api/export/pdf', ah(async (req, res) => {
   const startX = 20;
   const tableW = doc.page.width - 40;
   const nameColW = 110;
-  const dayColW = Math.floor((tableW - nameColW) / 7);
+  const dayAreaW = tableW - nameColW;
+  const dayColW = dayAreaW / 7;
+  // Helper to get the x position of day column d (avoids rounding gaps)
+  const dayX = (d) => startX + nameColW + Math.round(d * dayColW);
+  const dayW = (d) => dayX(d + 1) - dayX(d);
   let y = doc.y;
 
   // Calculate row height to fit everything on one page
@@ -1753,9 +1757,10 @@ app.get('/api/export/pdf', ah(async (req, res) => {
       doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#ffffff')
         .text('EMPLOYEE', startX + 4, y + 2, { width: nameColW - 8 });
       for (let d = 0; d < 7; d++) {
-        const x = startX + nameColW + d * dayColW;
-        doc.rect(x, y, dayColW, headerH).fill('#1a3a6e');
-        doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 2, { width: dayColW - 4, align: 'center' });
+        const x = dayX(d);
+        const w = dayW(d);
+        doc.rect(x, y, w, headerH).fill('#1a3a6e');
+        doc.fillColor('#ffffff').fontSize(fontSize).text(dayHeaders[d], x + 2, y + 2, { width: w - 4, align: 'center' });
       }
       doc.lineWidth(0.5).strokeColor('#333');
       doc.moveTo(startX, y + headerH).lineTo(startX + tableW, y + headerH).stroke();
@@ -1771,28 +1776,26 @@ app.get('/api/export/pdf', ah(async (req, res) => {
           .text(emp.name, startX + 4, y + (rowH > 12 ? 3 : 2), { width: nameColW - 8 });
 
         for (let d = 0; d < 7; d++) {
-          const x = startX + nameColW + d * dayColW;
+          const x = dayX(d);
+          const w = dayW(d);
           const val = (shiftMap[emp.id] && shiftMap[emp.id][d]) || '';
           if (val) {
             const lower = val.toLowerCase();
             if (lower.includes('req off')) doc.fillColor('#aa0000');
             else if (lower.includes('west') || lower.includes('shipyard')) doc.fillColor('#0033aa');
             else doc.fillColor('#000000');
-            doc.fontSize(fontSize).font('Helvetica-Bold').text(val, x + 2, y + (rowH > 12 ? 3 : 2), { width: dayColW - 4, align: 'center' });
+            doc.fontSize(fontSize).font('Helvetica-Bold').text(val, x + 2, y + (rowH > 12 ? 3 : 2), { width: w - 4, align: 'center' });
           }
         }
 
-        // Draw grid lines — softer color for less congestion
+        // Grid lines
         doc.lineWidth(0.5).strokeColor('#8898b0');
-        // Horizontal line at bottom of row
         doc.moveTo(startX, y + rowH).lineTo(startX + tableW, y + rowH).stroke();
-        // Vertical lines for each column
         doc.lineWidth(0.3).strokeColor('#a0aec0');
         doc.moveTo(startX, y).lineTo(startX, y + rowH).stroke();
         doc.moveTo(startX + nameColW, y).lineTo(startX + nameColW, y + rowH).stroke();
         for (let d = 1; d <= 7; d++) {
-          const x = startX + nameColW + d * dayColW;
-          doc.moveTo(x, y).lineTo(x, y + rowH).stroke();
+          doc.moveTo(dayX(d), y).lineTo(dayX(d), y + rowH).stroke();
         }
 
         y += rowH;
