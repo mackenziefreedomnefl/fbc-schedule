@@ -468,15 +468,13 @@
   async function bootstrap() {
     if (isMobileDevice()) document.body.classList.add('is-mobile');
     try {
-      const [me, clubs, notice, advisory] = await Promise.all([
+      const [me, clubs, notice] = await Promise.all([
         api('/api/me'),
         api('/api/clubs'),
         api('/api/notice').catch(() => ({ text: '' })),
-        api('/api/advisory').catch(() => ({ text: '' })),
       ]);
       state.me = me || { id: null };
       state.clubs = clubs || [];
-      state.advisory = (advisory && advisory.text) || '';
       if (notice && notice.text) NOTICE_TEXT = notice.text;
       state.weekStart = weekForTab(state.tab);
       await render();
@@ -731,27 +729,6 @@
     if (!state.clubs.length) {
       body.appendChild(el('div', { class: 'muted' }, 'No clubs yet.'));
       return;
-    }
-
-    // Advisory banner — visible to everyone when set
-    if (state.advisory) {
-      const banner = el('div', { class: 'advisory-banner' });
-      banner.appendChild(el('span', { class: 'advisory-icon' }, '\u26A0'));
-      banner.appendChild(el('span', {}, state.advisory));
-      if (isOwner()) {
-        banner.appendChild(el('button', {
-          class: 'ghost', style: 'font-size:11px; margin-left:auto; color:#fff;',
-          onclick: () => openAdvisoryModal(),
-        }, 'Edit'));
-      }
-      body.appendChild(banner);
-    } else if (isOwner()) {
-      const addBtn = el('div', { style: 'text-align:right; margin-bottom:4px;' });
-      addBtn.appendChild(el('button', {
-        class: 'ghost', style: 'font-size:11px;',
-        onclick: () => openAdvisoryModal(),
-      }, '+ Add Advisory'));
-      body.appendChild(addBtn);
     }
 
     // Static notice — owners only (with edit button)
@@ -2526,37 +2503,6 @@
           } catch (e) { errDiv.textContent = e.message; }
         },
       }, 'Update'),
-    ]));
-    openModal(content);
-  }
-
-  function openAdvisoryModal() {
-    const content = el('div');
-    content.appendChild(el('h2', {}, 'Small Craft Advisory / Notice'));
-    content.appendChild(el('p', { class: 'muted' }, 'This banner shows at the top for all staff. Leave blank to hide.'));
-    const textIn = el('textarea', { style: 'width:100%; min-height:60px; font-size:15px; padding:10px;' });
-    textIn.value = state.advisory || '';
-    content.appendChild(textIn);
-    content.appendChild(el('div', { style: 'display:flex; gap:8px; margin-top:10px;' }, [
-      el('button', {
-        class: 'primary',
-        onclick: async () => {
-          await api('/api/advisory', { method: 'PUT', body: { text: textIn.value.trim() } });
-          state.advisory = textIn.value.trim();
-          closeModal();
-          renderBody();
-        },
-      }, 'Save'),
-      el('button', {
-        class: 'ghost danger',
-        onclick: async () => {
-          await api('/api/advisory', { method: 'PUT', body: { text: '' } });
-          state.advisory = '';
-          closeModal();
-          renderBody();
-        },
-      }, 'Clear'),
-      el('button', { class: 'ghost', onclick: closeModal }, 'Cancel'),
     ]));
     openModal(content);
   }
