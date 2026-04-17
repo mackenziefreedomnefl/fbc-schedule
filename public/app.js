@@ -62,6 +62,7 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const el = (tag, props = {}, children = []) => {
     const n = document.createElement(tag);
+    if (tag === 'button' && !('type' in props)) n.type = 'button';
     for (const [k, v] of Object.entries(props)) {
       if (k === 'class') n.className = v;
       else if (k === 'html') n.innerHTML = v;
@@ -696,17 +697,18 @@
     return !!state.scheduleImages[ws];
   }
 
+  let _loadingSchedules = null;
   async function loadAllSchedules() {
-    // Anonymous staff see every configured week stacked, so we fetch all of
-    // them. Signed-in managers/owners use tabs so we only fetch the active
-    // week to keep the request count down.
-    // Staff see current + next only; managers/owners load only the active tab
+    if (_loadingSchedules) return _loadingSchedules;
+    _loadingSchedules = _doLoadAllSchedules();
+    try { await _loadingSchedules; } finally { _loadingSchedules = null; }
+  }
+  async function _doLoadAllSchedules() {
     const weeksToLoad = isLoggedIn() ? [state.tab] : ['current', 'next'];
     const empty = {};
     WEEK_KEYS.forEach(k => { empty[k] = {}; });
     state.weekData = empty;
 
-    // Load schedule images list in parallel with schedule data
     const imgPromise = loadScheduleImages();
 
     for (const weekKey of weeksToLoad) {

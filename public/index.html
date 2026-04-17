@@ -3,10 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="description" content="Freedom Boat Club NEFL weekly dock schedule for Jacksonville and St. Augustine locations." />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta property="og:title" content="FBC NEFL Schedule" />
+  <meta property="og:description" content="Weekly dock schedule for Freedom Boat Club Northeast Florida." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="/fbc-logo.png?v=1" type="image/png" />
   <script>
-    // On narrow phones, force a wider virtual viewport so the entire schedule
-    // grid fits on the screen at once. Lock zoom completely so iOS can't
-    // auto-zoom when tapping cells (the #1 complaint from managers).
     (function () {
       var sw = window.innerWidth || document.documentElement.clientWidth || 0;
       if (sw > 0 && sw < 900) {
@@ -25,25 +28,28 @@
     })();
   </script>
   <title>Freedom Boat Club NEFL Schedule</title>
-  <link rel="stylesheet" href="/styles.css?v=122" />
+  <link rel="stylesheet" href="/styles.css?v=126" />
 </head>
 <body>
+  <a href="#main-body" class="skip-nav">Skip to main content</a>
   <div id="app">
     <section id="view-main" class="view">
-      <header class="topbar">
+      <header class="topbar" role="banner">
         <div class="brand">
-          <img src="/fbc-logo.png?v=1" alt="Freedom Boat Club" class="brand-logo" onerror="this.remove()" />
-          <span>Freedom Boat Club NEFL Schedule</span>
+          <img src="/fbc-logo.png?v=1" alt="Freedom Boat Club" class="brand-logo" width="44" height="44" onerror="this.remove()" />
+          <h1 class="brand-title">Freedom Boat Club NEFL Schedule</h1>
         </div>
         <div id="user-chip" class="user-chip"></div>
       </header>
 
-      <main id="main-body"></main>
+      <main id="main-body">
+        <div class="loading-placeholder">Loading schedule...</div>
+      </main>
     </section>
   </div>
 
   <div id="modal-root"></div>
 
-  <script src="/app.js?v=125"></script>
+  <script src="/app.js?v=126" defer></script>
 </body>
 </html>
