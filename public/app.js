@@ -2279,24 +2279,6 @@
     const content = el('div');
     content.appendChild(el('h2', {}, 'Admin'));
 
-    const tabs = el('div', { class: 'tabs', style: 'margin-bottom:14px;' });
-    const usersTab = el('button', {
-      class: adminTab === 'users' ? 'active' : '',
-      onclick: () => { adminTab = 'users'; renderTab(); },
-    }, 'Users');
-    const activityTab = el('button', {
-      class: adminTab === 'activity' ? 'active' : '',
-      onclick: () => { adminTab = 'activity'; renderTab(); },
-    }, 'Activity');
-    const importTab = el('button', {
-      class: adminTab === 'import' ? 'active' : '',
-      onclick: () => { adminTab = 'import'; renderTab(); },
-    }, 'Import');
-    tabs.appendChild(usersTab);
-    tabs.appendChild(activityTab);
-    tabs.appendChild(importTab);
-    content.appendChild(tabs);
-
     const tabBody = el('div');
     content.appendChild(tabBody);
 
@@ -2308,18 +2290,8 @@
       }, 'Download full backup (JSON)'),
     ]));
 
-    function renderTab() {
-      usersTab.className = adminTab === 'users' ? 'active' : '';
-      activityTab.className = adminTab === 'activity' ? 'active' : '';
-      importTab.className = adminTab === 'import' ? 'active' : '';
-      tabBody.innerHTML = '';
-      if (adminTab === 'users') renderUsersTab(tabBody);
-      else if (adminTab === 'activity') renderActivityTab(tabBody);
-      else if (adminTab === 'import') renderImportTab(tabBody);
-    }
-
     openModal(content, { wide: true });
-    renderTab();
+    renderUsersTab(tabBody);
   }
 
   async function renderUsersTab(container) {
