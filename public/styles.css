@@ -969,6 +969,15 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 .timeoff-pto-wrap { display: flex; align-items: center; gap: 4px; }
 .timeoff-pto-label { font-size: 12px; white-space: nowrap; cursor: pointer; }
 
+/* Advisory banner */
+.advisory-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; margin-bottom: 12px;
+  background: #b91c1c; color: #fff;
+  border-radius: 8px; font-size: 14px; font-weight: 600;
+}
+.advisory-icon { font-size: 20px; }
+
 /* Shift request form */
 .shift-req-reasons {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;

@@ -1616,6 +1616,25 @@ app.get('/api/reset-password', ah(async (req, res) => {
   res.json({ ok: true, message: `Owner account created for ${normalized}`, action: 'created' });
 }));
 
+// ---------- advisory banner ----------
+app.get('/api/advisory', ah(async (req, res) => {
+  const { rows } = await pool.query("SELECT value FROM app_state WHERE key = 'advisory'");
+  res.json({ text: rows[0] ? rows[0].value : '' });
+}));
+
+app.put('/api/advisory', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  const { text } = req.body || {};
+  const value = (text || '').slice(0, 500);
+  await pool.query(
+    `INSERT INTO app_state (key, value) VALUES ('advisory', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [value]
+  );
+  res.json({ ok: true, text: value });
+}));
+
 // ---------- health ----------
 // ---------- export / backup ----------
 // Full JSON backup of all data (owner-only)
