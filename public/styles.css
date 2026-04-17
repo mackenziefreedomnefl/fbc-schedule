@@ -1041,10 +1041,10 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 .shared-draft-bar { position: sticky; top: 48px; z-index: 9; }
 
 /* Totals in table footer */
-.totals-footer .totals-row { background: #1a2a40 !important; }
+tr.totals-row td { background: #1a2a40 !important; }
 .totals-loc-cell {
   font-weight: 700; color: #fff !important;
-  font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em;
+  font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em;
 }
 .totals-count-cell {
   text-align: center; font-weight: 700; color: #fff !important;
