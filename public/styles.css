@@ -532,9 +532,9 @@ button.review-badge-clickable:hover {
   background: transparent;
 }
 .schedule-table th {
-  background: var(--panel-2);
+  background: #1a1a1a;
   font-weight: 700;
-  color: var(--text);
+  color: #ffffff;
   text-transform: uppercase;
   font-size: 13px;
   letter-spacing: 0.03em;
@@ -1049,6 +1049,10 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 .totals-count-cell {
   text-align: center; font-weight: 700; color: #fff !important;
   font-size: 13px;
+}
+.shift-count-cell {
+  text-align: center; font-weight: 700; font-size: 13px;
+  color: var(--text); background: var(--panel-2);
 }
 
 /* Past week navigation */
