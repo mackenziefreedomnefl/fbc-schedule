@@ -637,6 +637,7 @@
       }
 
       menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
+      menu.appendChild(el('button', { onclick: openShiftRequestsPanel }, 'Shift Requests'));
       menu.appendChild(el('button', { onclick: openChangePasswordModal }, 'Account'));
       menu.appendChild(el('button', {
         onclick: async () => {
@@ -891,6 +892,15 @@
           body.appendChild(section);
         });
       });
+
+      // Request Shift Change button for staff
+      const reqBar = el('div', { class: 'shift-request-bar' });
+      reqBar.appendChild(el('button', {
+        class: 'primary',
+        style: 'font-size:15px; padding:12px 24px;',
+        onclick: () => openStaffShiftRequestForm(),
+      }, 'Request Shift Change'));
+      body.appendChild(reqBar);
     }
 
     // Apply any existing filter after new rows are rendered
@@ -1723,6 +1733,131 @@
     }
 
     loadPage();
+  }
+
+  // -------- Staff shift change request form (no login) --------
+  function openStaffShiftRequestForm() {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Request Shift Change'));
+    content.appendChild(el('p', { class: 'muted' },
+      'Need to swap a shift, change a day, or let your manager know about a conflict? Submit your request below.'));
+
+    const empSelect = el('select', { style: 'width:100%; padding:10px; font-size:16px; margin:8px 0;' });
+    empSelect.appendChild(el('option', { value: '' }, 'Select your name...'));
+    state.clubs.forEach(club => {
+      const weekKey = 'current';
+      const data = (state.weekData[weekKey] || {})[club.id];
+      if (!data) return;
+      const optgroup = el('optgroup', { label: club.name });
+      data.employees.forEach(e => {
+        optgroup.appendChild(el('option', { value: e.id }, e.name));
+      });
+      empSelect.appendChild(optgroup);
+    });
+    content.appendChild(empSelect);
+
+    const textArea = el('textarea', {
+      placeholder: 'Describe your request\n\nExamples:\n• "I need to swap my Thursday Beach shift with someone"\n• "Can I switch my Friday East with Nick\'s Saturday East?"\n• "I can\'t work Wednesday — looking for someone to cover"',
+      style: 'width:100%; min-height:120px; padding:10px; font-size:15px; margin:8px 0; border:1px solid var(--border); border-radius:8px; resize:vertical;',
+    });
+    content.appendChild(textArea);
+
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(errDiv);
+
+    content.appendChild(el('div', { style: 'display:flex; gap:8px; margin-top:8px;' }, [
+      el('button', {
+        class: 'primary',
+        style: 'font-size:15px; padding:10px 20px;',
+        onclick: async () => {
+          errDiv.textContent = '';
+          if (!empSelect.value) { errDiv.textContent = 'Please select your name'; return; }
+          if (!textArea.value.trim()) { errDiv.textContent = 'Please describe your request'; return; }
+          try {
+            await api('/api/shift-requests', {
+              method: 'POST',
+              body: {
+                employee_id: Number(empSelect.value),
+                request_text: textArea.value.trim(),
+              },
+            });
+            closeModal();
+            toast('Request submitted! Your manager has been notified.');
+          } catch (err) { errDiv.textContent = err.message; }
+        },
+      }, 'Submit Request'),
+      el('button', { class: 'ghost', onclick: closeModal }, 'Cancel'),
+    ]));
+
+    openModal(content);
+  }
+
+  // -------- Manager/owner shift request panel --------
+  async function openShiftRequestsPanel() {
+    const content = el('div');
+    content.appendChild(el('h2', {}, 'Shift Change Requests'));
+
+    const listWrap = el('div');
+    content.appendChild(listWrap);
+
+    async function refreshList() {
+      const requests = await api('/api/shift-requests');
+      listWrap.innerHTML = '';
+      if (!requests.length) {
+        listWrap.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No shift change requests.'));
+        return;
+      }
+      const groups = { pending: [], approved: [], denied: [] };
+      requests.forEach(r => { (groups[r.status] || groups.pending).push(r); });
+
+      for (const [status, items] of Object.entries(groups)) {
+        if (!items.length) continue;
+        const label = status === 'pending' ? 'Pending'
+          : status === 'approved' ? 'Approved' : 'Denied';
+        listWrap.appendChild(el('div', { class: 'timeoff-group-label timeoff-' + status }, label));
+        items.forEach(r => {
+          const row = el('div', { class: 'timeoff-row timeoff-' + r.status });
+          row.appendChild(el('span', { class: 'timeoff-name' }, r.employee_name));
+          row.appendChild(el('span', { class: 'timeoff-club muted' }, r.club_name));
+          row.appendChild(el('div', { class: 'shift-request-text' }, r.request_text));
+          row.appendChild(el('span', { class: 'muted', style: 'font-size:11px;' }, fmtRelative(r.created_at)));
+          const actions = el('div', { class: 'timeoff-actions' });
+          if (r.status === 'pending') {
+            actions.appendChild(el('button', {
+              class: 'primary', style: 'font-size:11px; padding:3px 10px;',
+              onclick: async () => {
+                await api(`/api/shift-requests/${r.id}/resolve`, { method: 'POST', body: { status: 'approved' } });
+                toast('Approved'); refreshList();
+              },
+            }, 'Approve'));
+            actions.appendChild(el('button', {
+              class: 'ghost danger', style: 'font-size:11px; padding:3px 10px;',
+              onclick: async () => {
+                await api(`/api/shift-requests/${r.id}/resolve`, { method: 'POST', body: { status: 'denied' } });
+                toast('Denied'); refreshList();
+              },
+            }, 'Deny'));
+          }
+          actions.appendChild(el('button', {
+            class: 'ghost danger', style: 'font-size:11px; padding:3px 8px;',
+            onclick: async () => {
+              await api(`/api/shift-requests/${r.id}`, { method: 'DELETE' });
+              refreshList();
+            },
+          }, 'Delete'));
+          row.appendChild(actions);
+          listWrap.appendChild(row);
+        });
+      }
+    }
+
+    content.appendChild(el('button', {
+      class: 'ghost', style: 'margin-top:12px;',
+      onclick: closeModal,
+    }, 'Close'));
+
+    openModal(content, { wide: true });
+    refreshList();
   }
 
   async function openTimeOffPanel() {

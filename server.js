@@ -1380,6 +1380,104 @@ app.delete('/api/time-off/:id', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- shift change requests ----------
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
+
+// Submit a shift change request (no auth — staff use this)
+app.post('/api/shift-requests', ah(async (req, res) => {
+  const { employee_id, request_text } = req.body || {};
+  if (!employee_id || !request_text) {
+    return res.status(400).json({ error: 'employee_id and request_text required' });
+  }
+  const { rows: empRows } = await pool.query(
+    'SELECT e.id, e.name, e.club_id, c.name AS club_name FROM employees e JOIN clubs c ON c.id = e.club_id WHERE e.id = $1',
+    [employee_id]
+  );
+  if (!empRows[0]) return res.status(404).json({ error: 'employee not found' });
+  const emp = empRows[0];
+
+  const { rows } = await pool.query(
+    `INSERT INTO shift_change_requests (employee_id, club_id, request_text) VALUES ($1, $2, $3) RETURNING id`,
+    [employee_id, emp.club_id, request_text]
+  );
+
+  // Email notification to owners
+  if (EMAIL_ENABLED) {
+    const subject = `Shift Change Request — ${emp.name} (${emp.club_name})`;
+    const html = `
+      <h2 style="margin:0 0 8px;color:#1a2233;">Shift Change Request</h2>
+      <p><strong>${emp.name}</strong> (${emp.club_name}) is requesting a shift change:</p>
+      <p style="padding:12px;background:#f0f4fa;border-radius:6px;margin:12px 0;">${request_text.replace(/\n/g, '<br>')}</p>
+      <p><a href="https://schedule.fbcnefl.com" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">View Schedule</a></p>
+    `;
+    try {
+      await smtpTransport.sendMail({
+        from: EMAIL_FROM,
+        to: NOTIFY_EMAILS.join(', '),
+        subject,
+        html,
+      });
+    } catch (err) {
+      console.error('[shift-request] email failed:', err.message);
+    }
+  }
+
+  // Slack webhook notification
+  if (SLACK_WEBHOOK_URL) {
+    try {
+      const fetch = globalThis.fetch || require('node-fetch');
+      await fetch(SLACK_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: `📋 *Shift Change Request*\n*${emp.name}* (${emp.club_name}):\n> ${request_text}`,
+        }),
+      });
+    } catch (err) {
+      console.error('[shift-request] slack webhook failed:', err.message);
+    }
+  }
+
+  res.json({ ok: true, id: rows[0].id });
+}));
+
+// List shift change requests (auth required)
+app.get('/api/shift-requests', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const { rows } = await pool.query(
+    `SELECT r.id, r.employee_id, r.club_id, r.request_text, r.status, r.created_at, r.resolved_at,
+            e.name AS employee_name, c.name AS club_name
+       FROM shift_change_requests r
+       JOIN employees e ON e.id = r.employee_id
+       JOIN clubs c ON c.id = r.club_id
+      ORDER BY r.status = 'pending' DESC, r.created_at DESC
+      LIMIT 100`
+  );
+  res.json(rows);
+}));
+
+// Approve/deny a shift change request
+app.post('/api/shift-requests/:id/resolve', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const { status } = req.body || {};
+  if (!['approved', 'denied'].includes(status)) return res.status(400).json({ error: 'status must be approved or denied' });
+  await pool.query(
+    `UPDATE shift_change_requests SET status = $1, resolved_by = $2, resolved_at = NOW() WHERE id = $3`,
+    [status, user.id, Number(req.params.id)]
+  );
+  res.json({ ok: true });
+}));
+
+// Delete a shift change request
+app.delete('/api/shift-requests/:id', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  await pool.query('DELETE FROM shift_change_requests WHERE id = $1', [Number(req.params.id)]);
+  res.json({ ok: true });
+}));
+
 // ---------- AI schedule parsing ----------
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
