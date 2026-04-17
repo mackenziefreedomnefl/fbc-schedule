@@ -1767,8 +1767,7 @@
     const reasonBtns = el('div', { class: 'shift-req-reasons' });
     const reasons = [
       { value: 'swap', label: 'Swap Shift', desc: 'Trade a shift with a coworker' },
-      { value: 'coverage', label: 'Need Coverage', desc: 'Need someone to cover your shift' },
-      { value: 'conflict', label: 'Schedule Conflict', desc: 'Appointment, emergency, etc.' },
+      { value: 'coverage', label: 'Need Coverage', desc: 'Conflict, appointment, emergency, etc.' },
       { value: 'other', label: 'Other', desc: 'Something else' },
     ];
     let selectedReason = '';
@@ -1853,12 +1852,6 @@
         detailsWrap.appendChild(buildDatePicker());
         detailsWrap.appendChild(el('label', { style: labelStyle }, 'Why do you need coverage?'));
         const reason = el('textarea', { placeholder: 'Please provide a reason...', style: fieldStyle + ' min-height:60px; resize:vertical;' });
-        reason.addEventListener('input', () => { formState.details = reason.value; });
-        detailsWrap.appendChild(reason);
-      } else if (selectedReason === 'conflict') {
-        detailsWrap.appendChild(buildDatePicker());
-        detailsWrap.appendChild(el('label', { style: labelStyle }, 'What is the conflict?'));
-        const reason = el('textarea', { placeholder: 'Appointment, family emergency, etc.', style: fieldStyle + ' min-height:60px; resize:vertical;' });
         reason.addEventListener('input', () => { formState.details = reason.value; });
         detailsWrap.appendChild(reason);
       } else if (selectedReason === 'other') {
