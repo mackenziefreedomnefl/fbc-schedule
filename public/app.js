@@ -853,15 +853,17 @@
             },
           }, c.name));
         });
-        btnWrap.appendChild(el('button', {
-          class: 'location-picker-btn',
+        picker.appendChild(btnWrap);
+        const viewAllWrap = el('div', { style: 'text-align:center; margin-top:12px;' });
+        viewAllWrap.appendChild(el('button', {
+          class: 'ghost location-picker-btn',
           onclick: async () => {
             state.staffClubId = 'all';
             await loadAllSchedules();
             renderBody();
           },
         }, 'View All'));
-        picker.appendChild(btnWrap);
+        picker.appendChild(viewAllWrap);
         body.appendChild(picker);
         return;
       }
@@ -1760,9 +1762,48 @@
     });
     content.appendChild(empSelect);
 
+    // Date(s) for the shift change
+    content.appendChild(el('label', { style: 'font-weight:600; font-size:14px; display:block; margin:8px 0 4px;' }, 'Date(s)'));
+    const dateRow = el('div', { style: 'display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;' });
+    const dateInput = el('input', { type: 'date', style: 'padding:8px; font-size:15px;' });
+    const addDateBtn = el('button', { class: 'ghost', style: 'font-size:13px;' }, '+ Add another date');
+    const dateList = el('div', { style: 'display:flex; gap:6px; flex-wrap:wrap;' });
+    const selectedDates = [];
+
+    const renderDates = () => {
+      dateList.innerHTML = '';
+      selectedDates.forEach((d, i) => {
+        const tag = el('span', {
+          style: 'display:inline-flex; align-items:center; gap:4px; background:var(--panel-2); padding:4px 10px; border-radius:16px; font-size:13px;',
+        });
+        tag.appendChild(document.createTextNode(d));
+        tag.appendChild(el('button', {
+          style: 'background:none; border:none; cursor:pointer; color:var(--danger); font-size:14px; padding:0 2px;',
+          onclick: () => { selectedDates.splice(i, 1); renderDates(); },
+        }, '\u00d7'));
+        dateList.appendChild(tag);
+      });
+    };
+
+    addDateBtn.addEventListener('click', () => {
+      if (dateInput.value && !selectedDates.includes(dateInput.value)) {
+        selectedDates.push(dateInput.value);
+        dateInput.value = '';
+        renderDates();
+      }
+    });
+    dateInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addDateBtn.click(); }
+    });
+
+    dateRow.appendChild(dateInput);
+    dateRow.appendChild(addDateBtn);
+    content.appendChild(dateRow);
+    content.appendChild(dateList);
+
     const textArea = el('textarea', {
-      placeholder: 'Describe your request\n\nExamples:\n• "I need to swap my Thursday Beach shift with someone"\n• "Can I switch my Friday East with Nick\'s Saturday East?"\n• "I can\'t work Wednesday — looking for someone to cover"',
-      style: 'width:100%; min-height:120px; padding:10px; font-size:15px; margin:8px 0; border:1px solid var(--border); border-radius:8px; resize:vertical;',
+      placeholder: 'What do you need?\n\nExamples:\n\u2022 "I need to swap my Beach shift with someone"\n\u2022 "Can I switch with Nick?"\n\u2022 "I can\'t work — looking for cover"',
+      style: 'width:100%; min-height:100px; padding:10px; font-size:15px; margin:8px 0; border:1px solid var(--border); border-radius:8px; resize:vertical;',
     });
     content.appendChild(textArea);
 
@@ -1776,13 +1817,16 @@
         onclick: async () => {
           errDiv.textContent = '';
           if (!empSelect.value) { errDiv.textContent = 'Please select your name'; return; }
+          if (!selectedDates.length) { errDiv.textContent = 'Please add at least one date'; return; }
           if (!textArea.value.trim()) { errDiv.textContent = 'Please describe your request'; return; }
+          const dateStr = selectedDates.join(', ');
+          const fullText = `Dates: ${dateStr}\n\n${textArea.value.trim()}`;
           try {
             await api('/api/shift-requests', {
               method: 'POST',
               body: {
                 employee_id: Number(empSelect.value),
-                request_text: textArea.value.trim(),
+                request_text: fullText,
               },
             });
             closeModal();
