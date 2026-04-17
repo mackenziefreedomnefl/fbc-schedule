@@ -50,6 +50,14 @@
     scheduleImages: {},  // { 'YYYY-MM-DD': { week_start, original_name, created_at } }
   };
 
+  // -------- mobile detection --------
+  // Use physical screen width, not layout viewport width. The virtual
+  // viewport is 1100px on phones so matchMedia('max-width:768px') is
+  // always false. screen.width gives the actual device width.
+  function isMobileDevice() {
+    return (window.screen && window.screen.width < 900) || 'ontouchstart' in window;
+  }
+
   // -------- dom helpers --------
   const $ = (sel, root = document) => root.querySelector(sel);
   const el = (tag, props = {}, children = []) => {
@@ -445,6 +453,7 @@
   }
 
   async function bootstrap() {
+    if (isMobileDevice()) document.body.classList.add('is-mobile');
     try {
       const [me, clubs, notice] = await Promise.all([
         api('/api/me'),
@@ -1125,7 +1134,7 @@
     // Close any existing picker and backdrop
     document.querySelectorAll('.shift-picker, .shift-picker-backdrop').forEach(n => n.remove());
 
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const isMobile = isMobileDevice();
 
     // On mobile, add a dim backdrop behind the sheet
     let backdrop = null;
@@ -1135,7 +1144,7 @@
       document.body.appendChild(backdrop);
     }
 
-    const picker = el('div', { class: 'shift-picker' });
+    const picker = el('div', { class: 'shift-picker' + (isMobile ? ' mobile-picker' : '') });
     const options = shiftOptionsForClub(clubName);
 
     const cleanup = () => { picker.remove(); if (backdrop) backdrop.remove(); };
@@ -1408,7 +1417,7 @@
           const pending = state.pendingChanges.get(key);
           const cellVal = pending ? pending.shift_text : serverVal;
           if (editable) {
-            const isMobile = window.matchMedia('(max-width: 768px)').matches;
+            const isMobile = isMobileDevice();
             const isPendingReview = pendingReviewCells.has(`${emp.id}:${d}`);
             const pendingTimeOffId = pendingTimeOffByCell.get(`${emp.id}:${d}`);
             const hasPendingTimeOff = !!pendingTimeOffId && !cellVal;
