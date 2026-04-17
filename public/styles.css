@@ -1,13 +1,13 @@
-/* Light blue theme */
+/* Navy theme */
 :root {
-  --bg: #e8f0fe;
+  --bg: #0f1b2d;
   --panel: #ffffff;
   --panel-2: #f0f4fa;
   --border: #c4d0e0;
   --text: #1a2233;
   --muted: #5a6a80;
-  --accent: #2563eb;
-  --accent-2: #1d4ed8;
+  --accent: #3b82f6;
+  --accent-2: #2563eb;
   --danger: #e5484d;
   --ok: #22c55e;
   --warn: #f59e0b;
@@ -73,27 +73,29 @@ label input, label select, label textarea { margin-top: 4px; }
 /* Topbar */
 .topbar {
   display: flex; align-items: center; gap: 16px;
-  padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+  padding: 12px 20px; border-bottom: none; background: #0a1628; color: #fff;
   position: sticky; top: 0; z-index: 10;
 }
-.brand { font-weight: 600; display: flex; align-items: center; gap: 12px; }
+.brand { font-weight: 600; display: flex; align-items: center; gap: 12px; color: #fff; }
 .brand-logo { height: 44px; width: auto; display: block; border-radius: 4px; }
 .tabs { display: flex; gap: 6px; margin-left: 16px; }
 .tabs button { background: transparent; border-color: transparent; color: var(--muted); }
 .tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
 /* Topbar controls */
-.topbar-btn { font-size: 12px; padding: 5px 10px; }
+.topbar-btn { font-size: 12px; padding: 5px 10px; color: #cbd5e1; border-color: rgba(255,255,255,0.15); }
+.topbar-btn:hover { color: #fff; border-color: rgba(255,255,255,0.4); }
 .topbar-btn.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
-.topbar-filter { width: 160px; font-size: 13px; }
-.topbar-label { white-space: nowrap; }
+.topbar-filter { width: 160px; font-size: 13px; background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); color: #fff; }
+.topbar-filter::placeholder { color: rgba(255,255,255,0.4); }
+.topbar-label { white-space: nowrap; color: #cbd5e1; }
 
 /* User menu dropdown */
 .topbar-menu-wrap { position: relative; }
-.topbar-menu-btn { white-space: nowrap; }
+.topbar-menu-btn { white-space: nowrap; color: #fff; }
 .topbar-dropdown {
   display: none;
   position: absolute; right: 0; top: 100%; margin-top: 4px;
@@ -111,18 +113,23 @@ label input, label select, label textarea { margin-top: 4px; }
   padding: 6px 16px 8px; font-size: 11px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
 }
 
-.user-chip { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.user-chip { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: #cbd5e1; }
 
-main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+main {
+  padding: 20px; max-width: 1400px; margin: 12px auto;
+  background: var(--panel); border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
 
 /* Static shift notice above the week heading */
 .shift-notice {
-  padding: 10px 14px;
-  margin-bottom: 14px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1.5;
   color: var(--text);
   display: flex;
   align-items: flex-start;
@@ -1013,6 +1020,11 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
   opacity: 0.7;
 }
 .team-edit-btn:hover { opacity: 1; border-color: #fff !important; }
+.team-divider-week {
+  float: right; font-size: 11px; font-weight: 400;
+  opacity: 0.7; text-transform: none; letter-spacing: 0;
+}
+.shared-draft-bar { position: sticky; top: 48px; z-index: 9; }
 
 /* Past week navigation */
 .week-nav-btn {
