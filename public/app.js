@@ -2475,6 +2475,19 @@
       el('button', { onclick: closeModal }, 'Cancel'),
       el('button', { class: 'primary', onclick: submit }, 'Admin'),
     ]));
+    // Forgot password link
+    content.appendChild(el('div', { style: 'text-align:center; margin-top:10px;' },
+      el('button', {
+        class: 'ghost', style: 'font-size:12px;',
+        onclick: () => {
+          const email = prompt('Enter your email address to receive a password reset link:');
+          if (!email) return;
+          api('/api/forgot-password', { method: 'POST', body: { email } })
+            .then(() => { toast('If that email exists, a reset link has been sent.'); })
+            .catch(() => { toast('If that email exists, a reset link has been sent.'); });
+        },
+      }, 'Forgot password?')
+    ));
     openModal(content);
     setTimeout(() => emailIn.focus(), 50);
   }

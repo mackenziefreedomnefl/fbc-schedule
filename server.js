@@ -6,6 +6,8 @@ const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
 const { Pool } = require('pg');
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 const PgSession = require('connect-pg-simple')(session);
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
@@ -142,6 +144,62 @@ const pool = new Pool({
 
 const app = express();
 app.set('trust proxy', 1);
+
+// ---------- security middleware ----------
+
+// #1: Login rate limiting — 10 attempts per 15 min per IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Try again in 15 minutes.' },
+});
+
+// #2: AI parsing throttle — 20 per hour per user session
+const parseLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req) => req.session?.userId || req.ip,
+  message: { error: 'Too many parse requests. Try again later.' },
+});
+
+// #4: Content Security Policy
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self';");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
+
+// #5: Origin check on state-changing requests (CSRF protection)
+app.use('/api', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const origin = req.headers.origin || '';
+  const host = req.headers.host || '';
+  // Allow same-origin, localhost, and trusted origins
+  if (!origin || origin.includes(host) || origin.includes('localhost') ||
+      origin === 'https://schedule.fbcnefl.com' || origin === 'https://fbcnefl.com') {
+    return next();
+  }
+  return res.status(403).json({ error: 'Forbidden: origin mismatch' });
+});
+
+// #9: Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    const userId = req.session?.userId || '-';
+    if (!req.path.startsWith('/api/health') && !req.path.includes('.')) {
+      console.log(`[req] ${req.method} ${req.path} ${res.statusCode} ${ms}ms user=${userId} ip=${req.ip}`);
+    }
+  });
+  next();
+});
+
 app.use(express.json({ limit: '1mb' }));
 
 // CORS for fbcnefl.com hub
@@ -269,7 +327,7 @@ function publicUser(u) {
 }
 
 // ---------- auth ----------
-app.post('/api/login', ah(async (req, res) => {
+app.post('/api/login', loginLimiter, ah(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
   const { rows } = await pool.query(
@@ -277,9 +335,18 @@ app.post('/api/login', ah(async (req, res) => {
     [String(email).toLowerCase().trim()]
   );
   const u = rows[0];
-  if (!u) return res.status(401).json({ error: 'invalid email or password' });
+  if (!u) {
+    console.log(`[security] failed login: unknown user "${String(email).toLowerCase().trim()}" from IP ${req.ip}`);
+    await audit(null, 'login_failed', null, null, { email: String(email).toLowerCase().trim(), ip: req.ip, reason: 'unknown user' });
+    return res.status(401).json({ error: 'invalid email or password' });
+  }
   const ok = await bcrypt.compare(password, u.password_hash);
-  if (!ok) return res.status(401).json({ error: 'invalid email or password' });
+  if (!ok) {
+    console.log(`[security] failed login: bad password for "${u.email}" from IP ${req.ip}`);
+    await audit(null, 'login_failed', null, null, { email: u.email, ip: req.ip, reason: 'bad password' });
+    return res.status(401).json({ error: 'invalid email or password' });
+  }
+  await audit(u, 'login_success', null, null, { ip: req.ip });
   req.session.userId = u.id;
   res.json(publicUser(u));
 }));
@@ -1495,7 +1562,7 @@ app.delete('/api/shift-requests/:id', ah(async (req, res) => {
 // ---------- AI schedule parsing ----------
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
-app.post('/api/parse-schedule', scheduleUpload.single('image'), ah(async (req, res) => {
+app.post('/api/parse-schedule', parseLimiter, scheduleUpload.single('image'), ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
@@ -1588,11 +1655,10 @@ Rules:
   }
 }));
 
-// ---------- password reset / owner create (no auth required) ----------
-// Visit /api/reset-password?email=you@email.com&new_password=newpass&token=SECRET
-// Creates an owner account if one doesn't exist, otherwise resets the password.
-// Token must match RESET_TOKEN env var (or SESSION_SECRET as fallback)
-app.get('/api/reset-password', ah(async (req, res) => {
+// ---------- password reset ----------
+// #6: Rate-limited reset with static token (for admin emergency use)
+const resetLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: { error: 'Too many reset attempts.' } });
+app.get('/api/reset-password', resetLimiter, ah(async (req, res) => {
   const { email, new_password, token } = req.query;
   const validToken = process.env.RESET_TOKEN || process.env.SESSION_SECRET || '';
   if (!token || !validToken || token !== validToken) {
@@ -1608,14 +1674,69 @@ app.get('/api/reset-password', ah(async (req, res) => {
   const hash = await bcrypt.hash(new_password, 10);
   const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [normalized]);
   if (rows[0]) {
-    await pool.query('UPDATE users SET password_hash = $1, role = \'owner\' WHERE id = $2', [hash, rows[0].id]);
-    return res.json({ ok: true, message: `Password reset for ${normalized}`, action: 'updated' });
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, rows[0].id]);
+    console.log(`[security] password reset for ${normalized} from IP ${req.ip}`);
+    return res.json({ ok: true, message: `Password reset for ${normalized}` });
   }
-  await pool.query(
-    "INSERT INTO users (email, password_hash, role, name) VALUES ($1, $2, 'owner', $3)",
-    [normalized, hash, normalized.split('@')[0]]
-  );
-  res.json({ ok: true, message: `Owner account created for ${normalized}`, action: 'created' });
+  return res.status(404).json({ error: 'user not found' });
+}));
+
+// #7: Forgot password via email — generates a 1-hour token
+const passwordResetTokens = new Map(); // email → { token, expires }
+app.post('/api/forgot-password', resetLimiter, ah(async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const normalized = email.toLowerCase().trim();
+  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [normalized]);
+  // Always return ok to avoid email enumeration
+  if (!rows[0]) return res.json({ ok: true });
+  const token = crypto.randomBytes(32).toString('hex');
+  passwordResetTokens.set(normalized, { token, expires: Date.now() + 60 * 60 * 1000 });
+  // Send email with reset link
+  if (EMAIL_ENABLED && smtpTransport) {
+    const resetUrl = `https://schedule.fbcnefl.com/api/reset-with-token?email=${encodeURIComponent(normalized)}&token=${token}`;
+    try {
+      await smtpTransport.sendMail({
+        from: EMAIL_FROM,
+        to: normalized,
+        subject: 'FBC Schedule — Password Reset',
+        html: `<h2>Password Reset</h2><p>Click the link below to reset your password. This link expires in 1 hour.</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">Reset Password</a></p><p style="color:#888;font-size:12px;">If you didn't request this, ignore this email.</p>`,
+      });
+    } catch (err) {
+      console.error('[forgot-password] email failed:', err.message);
+    }
+  }
+  console.log(`[security] forgot-password requested for ${normalized} from IP ${req.ip}`);
+  res.json({ ok: true });
+}));
+
+// Token-based reset (from email link)
+app.get('/api/reset-with-token', ah(async (req, res) => {
+  const { email, token } = req.query;
+  if (!email || !token) return res.status(400).send('Invalid link.');
+  const normalized = email.toLowerCase().trim();
+  const stored = passwordResetTokens.get(normalized);
+  if (!stored || stored.token !== token || Date.now() > stored.expires) {
+    return res.status(400).send('This reset link has expired or is invalid.');
+  }
+  // Show a simple HTML form to set new password
+  res.send(`<!doctype html><html><head><title>Reset Password</title><style>body{font-family:sans-serif;max-width:400px;margin:60px auto;padding:20px;}input{width:100%;padding:10px;margin:8px 0;font-size:16px;border:1px solid #ccc;border-radius:6px;}button{padding:12px;width:100%;font-size:16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;}</style></head><body><h2>Set New Password</h2><form method="POST" action="/api/reset-with-token"><input type="hidden" name="email" value="${normalized}"><input type="hidden" name="token" value="${token}"><input type="password" name="new_password" placeholder="New password (min 4 chars)" required minlength="4"><button type="submit">Reset Password</button></form></body></html>`);
+}));
+
+app.post('/api/reset-with-token', express.urlencoded({ extended: false }), ah(async (req, res) => {
+  const { email, token, new_password } = req.body || {};
+  if (!email || !token || !new_password) return res.status(400).send('Missing fields.');
+  const normalized = email.toLowerCase().trim();
+  const stored = passwordResetTokens.get(normalized);
+  if (!stored || stored.token !== token || Date.now() > stored.expires) {
+    return res.status(400).send('This reset link has expired.');
+  }
+  if (new_password.length < 4) return res.status(400).send('Password must be at least 4 characters.');
+  const hash = await bcrypt.hash(new_password, 10);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE email = $2', [hash, normalized]);
+  passwordResetTokens.delete(normalized);
+  console.log(`[security] password reset via token for ${normalized} from IP ${req.ip}`);
+  res.send('<!doctype html><html><body style="font-family:sans-serif;text-align:center;padding:60px;"><h2>Password Reset</h2><p>Your password has been updated. <a href="/">Go to schedule</a></p></body></html>');
 }));
 
 // ---------- advisory banner ----------
@@ -1874,5 +1995,33 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   res.status(500).json({ error: (err && err.message) || 'internal server error' });
 });
+
+// #3: Automated daily backup — store JSON snapshot in app_state
+async function runBackup() {
+  try {
+    const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
+    const { rows: employees } = await pool.query('SELECT id, club_id, name, team, archived, sort_order FROM employees ORDER BY club_id, sort_order');
+    const { rows: schedules } = await pool.query('SELECT id, club_id, week_start, status, notes, updated_at FROM schedules ORDER BY week_start DESC LIMIT 20');
+    const schedIds = schedules.map(s => s.id);
+    const { rows: shifts } = schedIds.length
+      ? await pool.query('SELECT schedule_id, employee_id, day_index, shift_text FROM shifts WHERE schedule_id = ANY($1)', [schedIds])
+      : { rows: [] };
+    const { rows: users } = await pool.query('SELECT id, email, role, club_id, team, name FROM users ORDER BY role, email');
+    const backup = JSON.stringify({
+      exported_at: new Date().toISOString(),
+      clubs, employees, schedules, shifts, users,
+    });
+    await pool.query(
+      `INSERT INTO app_state (key, value, updated_at) VALUES ('daily_backup', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [backup]
+    );
+    console.log(`[backup] daily backup saved (${(backup.length / 1024).toFixed(1)} KB)`);
+  } catch (err) {
+    console.error('[backup] failed:', err.message);
+  }
+}
+// Run backup on startup then every 24h
+setTimeout(() => { runBackup(); setInterval(runBackup, 24 * 60 * 60 * 1000); }, 10000);
 
 app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
