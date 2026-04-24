@@ -3301,7 +3301,8 @@
         row.appendChild(arrows);
 
         // Name (editable)
-        const nameIn = el('input', { value: emp.name, style: 'flex:1; padding:6px 8px;' });
+        const nameIn = el('input', { style: 'flex:1; padding:6px 8px;' });
+        nameIn.value = emp.name || '';
         nameIn.addEventListener('change', () => { emp.name = nameIn.value; });
         row.appendChild(nameIn);
 
