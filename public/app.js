@@ -3301,14 +3301,21 @@
         }
         row.appendChild(arrows);
 
-        // Name (editable)
-        const nameIn = document.createElement('input');
-        nameIn.type = 'text';
-        nameIn.style.cssText = 'flex:1; padding:6px 8px;';
-        nameIn.value = emp.name || '';
-        nameIn.placeholder = emp.name || '';
-        nameIn.addEventListener('change', () => { emp.name = nameIn.value; });
-        row.appendChild(nameIn);
+        // Name as plain text
+        const nameSpan = el('span', { style: 'flex:1; padding:6px 8px; font-weight:600;' }, emp.name || '(unnamed)');
+        row.appendChild(nameSpan);
+
+        // Rename button
+        row.appendChild(el('button', {
+          class: 'ghost', style: 'font-size:11px; padding:2px 8px;',
+          onclick: () => {
+            const newName = prompt('Rename employee:', emp.name);
+            if (newName && newName.trim()) {
+              emp.name = newName.trim();
+              nameSpan.textContent = emp.name;
+            }
+          },
+        }, 'Rename'));
 
         // Team
         const teams = teamsForClub(club.name);
