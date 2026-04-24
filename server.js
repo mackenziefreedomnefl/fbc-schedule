@@ -167,7 +167,7 @@ const parseLimiter = rateLimit({
 // #4: Content Security Policy
 app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy',
-    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self';");
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self';");
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -1604,29 +1604,33 @@ app.post('/api/parse-schedule', parseLimiter, scheduleUpload.single('image'), ah
           },
           {
             type: 'text',
-            text: `Extract the weekly schedule data from this image/PDF. It may contain one or more club schedules.
+            text: `Extract ALL weekly schedule data from this image/PDF. It contains schedule tables for boat club locations.
+
+IMPORTANT: Read the column headers carefully. The dates in the header row tell you which column is which day (Mon through Sun). Make sure each shift value goes in the correct day column.
 
 Known clubs and their employees:
 ${clubList}
 
-Return ONLY valid JSON (no markdown, no backticks) in this exact format:
+Return ONLY valid JSON (no markdown, no backticks, no explanation) in this exact format:
 {
   "clubs": {
     "Club Name": {
       "Employee Name": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
       ...
-    },
-    ...
+    }
   }
 }
 
 Rules:
-- Each employee array has exactly 7 values (Mon=index 0 through Sun=index 6)
-- Use empty string "" for days with no assignment
-- Use the exact shift text as shown (e.g. "East", "West", "Beach", "Camachee", "Shipyard", "Req Off", "12 - Close Camachee", "Open - 4 East", "Beach - 1", "Capt Training", "Noon - Close Camachee", "Shipyard - 1", etc.)
-- Match employee names exactly to the known employee lists above
-- If an employee in the image isn't in a known list, use their name as shown
-- Only include clubs and employees that appear in the image`,
+- The schedule is a grid with employee names in the first column and days Mon-Sun across the top
+- Each employee array must have EXACTLY 7 values: index 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
+- Use empty string "" for any day with no assignment (blank cell)
+- Copy shift text EXACTLY as shown: "East", "West", "Beach", "Camachee", "Shipyard", "Req Off", etc.
+- Include partial shifts exactly: "12 - Close Camachee", "Open - 4 East", "Beach - 1", "Capt Training", "Noon - Close Camachee", "Shipyard - 1", "Shipyard 12-3", "East - 4", etc.
+- Match employee names to the known lists above. If a name in the image isn't in the list, use their name exactly as shown.
+- The image may have multiple tables (e.g. "Jacksonville" with sub-sections "Julington Creek" and "Jacksonville Beach", plus "St. Augustine"). Group all Jacksonville employees under "Jacksonville" and all St. Augustine employees under "St. Augustine".
+- Include EVERY employee row you see, even if all their cells are empty.
+- Double-check: count that each array has exactly 7 elements.`,
           },
         ],
       }],
