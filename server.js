@@ -207,9 +207,9 @@ app.use(express.json({ limit: '1mb' }));
 // CORS for fbcnefl.com hub
 app.use('/api', (req, res, next) => {
   const origin = req.headers.origin;
-  if (origin === 'https://fbcnefl.com' || origin === 'http://fbcnefl.com') {
+  if (origin === 'https://fbcnefl.com' || origin === 'http://fbcnefl.com' || origin === 'https://www.fbcnefl.com') {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -1244,6 +1244,32 @@ app.get('/api/time-off', ah(async (req, res) => {
     ...r,
     start_date: r.start_date instanceof Date ? r.start_date.toISOString().slice(0, 10) : r.start_date,
     end_date: r.end_date instanceof Date ? r.end_date.toISOString().slice(0, 10) : r.end_date,
+  })));
+}));
+
+// Public read-only feed of time-off requests — used by fbcnefl.com hub.
+// Returns only approved + pending requests whose end date is today or later,
+// and only non-sensitive fields (employee name, club, dates, status).
+app.get('/api/time-off/public', ah(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT t.id, t.start_date, t.end_date, t.status, t.note,
+            e.name AS employee_name, c.name AS club_name
+       FROM time_off_requests t
+       JOIN employees e ON e.id = t.employee_id
+       JOIN clubs c ON c.id = t.club_id
+      WHERE t.status IN ('pending','approved')
+        AND t.end_date >= CURRENT_DATE
+      ORDER BY t.status = 'pending' DESC, t.start_date ASC
+      LIMIT 50`
+  );
+  res.json(rows.map(r => ({
+    id: r.id,
+    employee_name: r.employee_name,
+    club_name: r.club_name,
+    start_date: r.start_date instanceof Date ? r.start_date.toISOString().slice(0, 10) : r.start_date,
+    end_date: r.end_date instanceof Date ? r.end_date.toISOString().slice(0, 10) : r.end_date,
+    status: r.status,
+    note: r.note || '',
   })));
 }));
 
