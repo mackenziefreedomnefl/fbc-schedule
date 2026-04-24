@@ -3341,13 +3341,40 @@
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
+      list.innerHTML = '';
       list.appendChild(table);
+
+      // Save Order button — writes clean sequential sort_orders
+      if (active.length > 1) {
+        const saveOrderBtn = el('button', {
+          class: 'primary', style: 'margin-top:10px;',
+          onclick: async () => {
+            saveOrderBtn.disabled = true;
+            saveOrderBtn.textContent = 'Saving...';
+            try {
+              for (let i = 0; i < active.length; i++) {
+                await api(`/api/employees/${active[i].id}`, {
+                  method: 'PATCH',
+                  body: { sort_order: i },
+                });
+              }
+              toast('Order saved');
+              await loadAllSchedules();
+              renderBody();
+              refresh();
+            } catch (err) { toast(err.message, 'err'); }
+            saveOrderBtn.disabled = false;
+            saveOrderBtn.textContent = 'Save Order';
+          },
+        }, 'Save Order');
+        list.appendChild(saveOrderBtn);
+      }
     }
 
     const list = el('div');
     content.appendChild(list);
 
-    // Add new — only show teams the user can edit
+    // Add new employee
     const editableTeams = teamsForClub(club.name).filter(t => canEditTeam(club.id, t));
     if (editableTeams.length) {
       const addWrap = el('div', { class: 'toolbar', style: 'margin-top:14px;' });
@@ -3372,8 +3399,9 @@
 
     content.appendChild(el('div', { class: 'modal-actions' }, [
       el('button', {
+        class: 'primary',
         onclick: async () => { closeModal(); await loadAllSchedules(); renderBody(); },
-      }, 'Close'),
+      }, 'Save & Close'),
     ]));
 
     openModal(content, { wide: true });
