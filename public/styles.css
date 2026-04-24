@@ -996,6 +996,14 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 }
 .advisory-icon { font-size: 20px; }
 
+/* Task panel */
+.task-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 4px; border-bottom: 1px solid var(--border);
+}
+.task-name { font-weight: 600; min-width: 140px; }
+.task-detail { font-size: 13px; }
+
 /* Roster modal */
 .roster-row {
   display: flex; align-items: center; gap: 8px;

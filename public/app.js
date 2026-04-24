@@ -458,6 +458,7 @@
       await render();
       if (isLoggedIn()) {
         loadNotifications().catch(() => {});
+        checkPendingTasks();
       }
     } catch (err) {
       const body = $('#main-body');
@@ -3439,6 +3440,60 @@
 
     openModal(content, { wide: true });
     loadRoster();
+  }
+
+  // -------- Pending tasks check --------
+  async function checkPendingTasks() {
+    try {
+      const tasks = await api('/api/tasks');
+      if (tasks.total > 0) {
+        openTasksPanel(tasks);
+      }
+    } catch (_) {}
+  }
+
+  function openTasksPanel(tasks) {
+    const content = el('div');
+    content.appendChild(el('h2', {}, `You have ${tasks.total} pending task${tasks.total !== 1 ? 's' : ''}`));
+
+    // Time off requests
+    if (tasks.time_off.length) {
+      content.appendChild(el('h3', { style: 'margin:12px 0 6px;' },
+        `Time Off Requests (${tasks.time_off.length})`));
+      tasks.time_off.forEach(r => {
+        const row = el('div', { class: 'task-row' });
+        row.appendChild(el('span', { class: 'task-name' }, r.employee_name));
+        row.appendChild(el('span', { class: 'task-detail' },
+          r.start_date === r.end_date ? r.start_date : `${r.start_date} to ${r.end_date}`));
+        content.appendChild(row);
+      });
+      content.appendChild(el('button', {
+        class: 'primary', style: 'margin-top:8px;',
+        onclick: () => { closeModal(); openTimeOffPanel(); },
+      }, 'Review Time Off Requests'));
+    }
+
+    // Shift change requests
+    if (tasks.shift_requests.length) {
+      content.appendChild(el('h3', { style: 'margin:12px 0 6px;' },
+        `Shift Change Requests (${tasks.shift_requests.length})`));
+      tasks.shift_requests.forEach(r => {
+        const row = el('div', { class: 'task-row' });
+        row.appendChild(el('span', { class: 'task-name' }, r.employee_name));
+        const preview = (r.request_text || '').split('\n')[0].slice(0, 60);
+        row.appendChild(el('span', { class: 'task-detail muted' }, preview));
+        content.appendChild(row);
+      });
+      content.appendChild(el('button', {
+        class: 'primary', style: 'margin-top:8px;',
+        onclick: () => { closeModal(); openShiftRequestsPanel(); },
+      }, 'Review Shift Requests'));
+    }
+
+    content.appendChild(el('div', { style: 'margin-top:16px; text-align:center;' },
+      el('button', { class: 'ghost', onclick: closeModal }, 'Dismiss')));
+
+    openModal(content);
   }
 
   document.addEventListener('DOMContentLoaded', bootstrap);
