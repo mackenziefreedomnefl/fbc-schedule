@@ -1742,17 +1742,56 @@
     content.appendChild(el('label', { style: labelStyle }, 'Your Name'));
     const empSelect = el('select', { style: fieldStyle });
     empSelect.appendChild(el('option', { value: '' }, 'Select your name...'));
-    // Build flat list of all employees across clubs
     const allEmps = [];
+    const allData = {}; // clubId → schedule data
     state.clubs.forEach(club => {
       const data = (state.weekData['current'] || {})[club.id];
       if (!data) return;
-      data.employees.forEach(e => allEmps.push({ ...e, clubName: club.name }));
+      allData[club.id] = data;
+      data.employees.forEach(e => allEmps.push({ ...e, clubId: club.id, clubName: club.name }));
     });
     allEmps.forEach(e => {
       empSelect.appendChild(el('option', { value: e.id }, e.name));
     });
     content.appendChild(empSelect);
+
+    // Your schedule preview
+    const myScheduleDiv = el('div');
+    content.appendChild(myScheduleDiv);
+
+    function buildMiniSchedule(empId, label) {
+      const emp = allEmps.find(e => String(e.id) === String(empId));
+      if (!emp) return el('div');
+      const data = allData[emp.clubId];
+      if (!data) return el('div');
+      const wrap = el('div', { class: 'mini-schedule' });
+      if (label) wrap.appendChild(el('div', { style: 'font-weight:600; font-size:13px; margin-bottom:4px;' }, label));
+      const row = el('div', { class: 'mini-schedule-row' });
+      DAYS.forEach((d, i) => {
+        const ws = data.schedule.week_start;
+        const dt = new Date(ws + 'T00:00:00');
+        dt.setDate(dt.getDate() + i);
+        const dateLabel = `${d} ${dt.getMonth()+1}/${dt.getDate()}`;
+        const shift = (data.shifts[emp.id] && data.shifts[emp.id][i]) || '';
+        const cell = el('div', { class: 'mini-schedule-cell' });
+        cell.appendChild(el('div', { class: 'mini-schedule-day' }, dateLabel));
+        const valDiv = el('div', { class: 'mini-schedule-val' });
+        valDiv.textContent = shift || '—';
+        if (shift) valDiv.style.color = cellColorFor(shift) || 'inherit';
+        else valDiv.style.color = 'var(--muted)';
+        cell.appendChild(valDiv);
+        row.appendChild(cell);
+      });
+      wrap.appendChild(row);
+      return wrap;
+    }
+
+    empSelect.addEventListener('change', () => {
+      myScheduleDiv.innerHTML = '';
+      if (empSelect.value) {
+        myScheduleDiv.appendChild(buildMiniSchedule(empSelect.value, 'Your Schedule (This Week)'));
+      }
+    });
 
     // Step 2: Reason
     content.appendChild(el('label', { style: labelStyle }, 'Reason'));
@@ -1832,10 +1871,22 @@
         const swapSelect = el('select', { style: fieldStyle });
         swapSelect.appendChild(el('option', { value: '' }, 'Select coworker...'));
         allEmps.forEach(e => {
-          swapSelect.appendChild(el('option', { value: e.name }, e.name));
+          if (String(e.id) !== String(empSelect.value)) {
+            swapSelect.appendChild(el('option', { value: e.name, 'data-emp-id': e.id }, e.name));
+          }
         });
-        swapSelect.addEventListener('change', () => { formState.swapWith = swapSelect.value; });
+        const swapScheduleDiv = el('div');
+        swapSelect.addEventListener('change', () => {
+          formState.swapWith = swapSelect.value;
+          swapScheduleDiv.innerHTML = '';
+          const opt = swapSelect.selectedOptions[0];
+          const swapId = opt ? opt.getAttribute('data-emp-id') : null;
+          if (swapId) {
+            swapScheduleDiv.appendChild(buildMiniSchedule(swapId, `${swapSelect.value}'s Schedule`));
+          }
+        });
         detailsWrap.appendChild(swapSelect);
+        detailsWrap.appendChild(swapScheduleDiv);
         detailsWrap.appendChild(el('label', { style: labelStyle }, 'Additional details (optional)'));
         const notes = el('textarea', { placeholder: 'Any other details about the swap...', style: fieldStyle + ' min-height:60px; resize:vertical;' });
         notes.addEventListener('input', () => { formState.details = notes.value; });

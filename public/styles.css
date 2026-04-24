@@ -1031,6 +1031,29 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
   border-color: var(--accent); background: rgba(37, 99, 235, 0.06);
 }
 
+/* Mini schedule preview */
+.mini-schedule {
+  margin: 8px 0 12px; padding: 10px;
+  background: var(--panel-2); border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.mini-schedule-row {
+  display: flex; gap: 2px;
+}
+.mini-schedule-cell {
+  flex: 1; text-align: center; min-width: 0;
+}
+.mini-schedule-day {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; margin-bottom: 2px;
+}
+.mini-schedule-val {
+  font-size: 13px; font-weight: 600; padding: 6px 2px;
+  background: var(--panel); border-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* Shift request bar (staff view) */
 .shift-request-bar {
   text-align: center; padding: 20px; margin-top: 16px;
