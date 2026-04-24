@@ -651,10 +651,79 @@ app.post('/api/schedules/:id/approve-cell', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ---------- Slack connection (kept for future use) ----------
+// ---------- Slack connection ----------
 const _env = (k) => process.env[k] || '';
 const SLACK_BOT_TOKEN = _env('SLACK_TOKEN');
 const SLACK_CHANNEL_ID = _env('SLACK_CHANNEL');
+// Channel where staff post time-off requests (falls back to SLACK_CHANNEL)
+const SLACK_TIMEOFF_CHANNEL = _env('SLACK_TIMEOFF_CHANNEL') || SLACK_CHANNEL_ID;
+
+// Small in-memory cache so we don't hammer the Slack API
+const _slackCache = { timeoff: { data: null, ts: 0 } };
+const _slackUserCache = new Map(); // user_id -> { name, real_name }
+
+async function slackGet(method, params) {
+  const fetch = globalThis.fetch || require('node-fetch');
+  const url = 'https://slack.com/api/' + method + '?' + new URLSearchParams(params);
+  const r = await fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + SLACK_BOT_TOKEN }
+  });
+  const data = await r.json();
+  if (!data.ok) throw new Error('slack ' + method + ': ' + (data.error || 'unknown'));
+  return data;
+}
+
+async function lookupSlackUser(userId) {
+  if (!userId) return null;
+  if (_slackUserCache.has(userId)) return _slackUserCache.get(userId);
+  try {
+    const d = await slackGet('users.info', { user: userId });
+    const u = d.user || {};
+    const info = {
+      name: u.profile && (u.profile.display_name || u.profile.real_name) || u.name || 'Unknown',
+      avatar: u.profile && u.profile.image_48 || null,
+    };
+    _slackUserCache.set(userId, info);
+    return info;
+  } catch (e) { return { name: 'Unknown', avatar: null }; }
+}
+
+// Public read-only feed of the Slack time-off channel — used by fbcnefl.com hub
+app.get('/api/slack-timeoff/public', ah(async (req, res) => {
+  if (!SLACK_BOT_TOKEN || !SLACK_TIMEOFF_CHANNEL) {
+    return res.json({ configured: false, messages: [] });
+  }
+  // Cache for 60s
+  const now = Date.now();
+  if (_slackCache.timeoff.data && (now - _slackCache.timeoff.ts) < 60000) {
+    return res.json(_slackCache.timeoff.data);
+  }
+  try {
+    const history = await slackGet('conversations.history', {
+      channel: SLACK_TIMEOFF_CHANNEL,
+      limit: '30',
+    });
+    const raw = (history.messages || []).filter(m => !m.subtype || m.subtype === 'thread_broadcast');
+    // Resolve user names
+    const messages = [];
+    for (const m of raw) {
+      const user = await lookupSlackUser(m.user);
+      messages.push({
+        ts: m.ts,
+        text: m.text || '',
+        user_name: user ? user.name : 'Unknown',
+        user_avatar: user ? user.avatar : null,
+        thread_reply_count: m.reply_count || 0,
+      });
+    }
+    const payload = { configured: true, messages };
+    _slackCache.timeoff = { data: payload, ts: now };
+    res.json(payload);
+  } catch (e) {
+    console.error('[slack-timeoff] failed:', e.message);
+    res.json({ configured: true, error: e.message, messages: [] });
+  }
+}));
 
 // ---------- clubs ----------
 app.get('/api/clubs', ah(async (req, res) => {
