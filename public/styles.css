@@ -996,6 +996,19 @@ body.is-mobile .shift-picker-btn { opacity: 0.8 !important; font-size: 12px; pad
 }
 .advisory-icon { font-size: 20px; }
 
+/* Roster modal */
+.roster-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 4px; border-bottom: 1px solid var(--border);
+}
+.roster-row:hover { background: var(--panel-2); }
+.roster-archived { opacity: 0.5; }
+.roster-arrows { display: flex; flex-direction: column; min-width: 28px; }
+.roster-add {
+  display: flex; gap: 8px; margin-top: 14px; padding: 10px;
+  background: var(--panel-2); border-radius: 8px;
+}
+
 /* Shift request form */
 .shift-req-reasons {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
