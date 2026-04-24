@@ -3462,13 +3462,16 @@
       }}, 'Cancel'),
       el('button', {
         class: 'primary',
-        onclick: async () => {
-          // Save everything: name, team, sort_order, archived for each employee
+        onclick: async (e) => {
+          const btn = e.target;
+          btn.disabled = true;
+          btn.textContent = 'Saving...';
           let saved = 0;
-          try {
-            for (let i = 0; i < roster.length; i++) {
-              const emp = roster[i];
-              const sortOrder = emp.archived ? 9999 : i;
+          let failed = 0;
+          for (let i = 0; i < roster.length; i++) {
+            const emp = roster[i];
+            const sortOrder = emp.archived ? 9999 : i;
+            try {
               await api(`/api/employees/${emp.id}`, {
                 method: 'PATCH',
                 body: {
@@ -3479,12 +3482,20 @@
                 },
               });
               saved++;
+            } catch (err) {
+              failed++;
+              console.error('[roster save] failed for', emp.name, err.message);
             }
-            toast(`Saved ${saved} employees`);
+          }
+          if (saved) toast(`Saved ${saved} employees`);
+          if (failed) toast(`${failed} failed to save`, 'err');
+          btn.disabled = false;
+          btn.textContent = 'Save All & Close';
+          if (!failed) {
             closeModal();
             await loadAllSchedules();
             renderBody();
-          } catch (err) { toast(err.message, 'err'); }
+          }
         },
       }, 'Save All & Close'),
     ]));
