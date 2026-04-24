@@ -330,22 +330,11 @@
     state.pendingChanges.forEach((v, k) => {
       if (Number(v.club_id) === cid) changes.push({ key: k, ...v });
     });
-    if (!changes.length) {
-      // Debug: show what's in the pending map
-      const total = state.pendingChanges.size;
-      if (total) {
-        const clubIds = new Set();
-        state.pendingChanges.forEach(v => clubIds.add(v.club_id));
-        toast(`No changes for club ${cid}. ${total} total pending for clubs: ${[...clubIds].join(', ')}`, 'err');
-      }
-      return;
-    }
-    changes.forEach(c => state.pendingChanges.delete(c.key));
-    state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== cid);
-    state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== cid);
+    if (!changes.length) return;
 
     let ok = 0;
     let failed = 0;
+    const failedChanges = [];
     for (const c of changes) {
       try {
         if (c.location) {
@@ -360,19 +349,21 @@
           });
         }
         ok++;
+        // Only remove from pending after successful save
+        state.pendingChanges.delete(c.key);
       } catch (err) {
         failed++;
-        toast(err.message, 'err');
+        failedChanges.push(c);
+        console.error('[save] failed:', err.message, c);
       }
     }
     if (ok) {
+      // Clear undo/redo for saved changes
+      state.undoStack = state.undoStack.filter(e => Number(e.club_id) !== cid);
+      state.redoStack = state.redoStack.filter(e => Number(e.club_id) !== cid);
       toast(`Saved ${ok} change${ok === 1 ? '' : 's'}`);
-      if (!isOwner()) {
-        // Remind managers to send for review after saving
-        setTimeout(() => toast('Don\'t forget to Send for Review when you\'re done'), 1500);
-      }
     }
-    if (failed) toast(`${failed} change${failed === 1 ? '' : 's'} failed`, 'err');
+    if (failed) toast(`${failed} change${failed === 1 ? '' : 's'} failed to save — try again`, 'err');
     updateDraftToolbar();
     // Reload data so server state matches what we just saved
     await loadAllSchedules();
