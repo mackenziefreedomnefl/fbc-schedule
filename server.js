@@ -866,7 +866,7 @@ setTimeout(() => {
 }, 15000);
 
 // Manual trigger for owners
-app.post('/api/slack-timeoff/scan', ah(async (req, res) => {
+app.all('/api/slack-timeoff/scan', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
   if (!SLACK_BOT_TOKEN || !SLACK_TIMEOFF_CHANNEL) {
@@ -875,8 +875,19 @@ app.post('/api/slack-timeoff/scan', ah(async (req, res) => {
   if (!ANTHROPIC_API_KEY) {
     return res.json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
   }
-  await scanSlackTimeOff();
-  res.json({ ok: true });
+  try {
+    await scanSlackTimeOff();
+    res.json({
+      ok: true,
+      config: {
+        slack_token: SLACK_BOT_TOKEN ? 'set (' + SLACK_BOT_TOKEN.slice(0, 10) + '...)' : 'missing',
+        slack_channel: SLACK_TIMEOFF_CHANNEL || 'missing',
+        anthropic_key: ANTHROPIC_API_KEY ? 'set' : 'missing',
+      },
+    });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 }));
 
 // ---------- clubs ----------
