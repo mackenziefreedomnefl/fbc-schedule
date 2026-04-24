@@ -1328,14 +1328,17 @@
     const thead = el('thead');
     const tbody = el('tbody');
     const groups = new Map();
+    const teamOrder = teamsForClub(club.name);
     for (const e of data.employees) {
-      const key = e.team || '';
+      let key = e.team || '';
+      // Employees without a team: merge into the last known team if the
+      // club has teams (Jacksonville). Otherwise keep as empty-string group.
+      if (!key && teamOrder.length) key = teamOrder[teamOrder.length - 1];
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
     }
-    const order = ['Julington Creek', 'Jacksonville Beach'];
     const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
-      const ai = order.indexOf(a); const bi = order.indexOf(b);
+      const ai = teamOrder.indexOf(a); const bi = teamOrder.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
