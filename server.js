@@ -744,7 +744,7 @@ async function scanSlackTimeOff() {
     const history = await slackGet('conversations.history', {
       channel: SLACK_TIMEOFF_CHANNEL,
       oldest: sinceTs,
-      limit: '20',
+      limit: '100',
     });
 
     const messages = (history.messages || [])
@@ -876,6 +876,14 @@ app.all('/api/slack-timeoff/scan', ah(async (req, res) => {
     return res.json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
   }
   try {
+    // ?all=true resets the timestamp to read all past messages
+    if (req.query.all === 'true') {
+      await pool.query(
+        `INSERT INTO app_state (key, value) VALUES ('slack_timeoff_last_ts', '0')
+         ON CONFLICT (key) DO UPDATE SET value = '0'`
+      );
+      console.log('[slack-timeoff] reset timestamp — will scan all past messages');
+    }
     await scanSlackTimeOff();
     res.json({
       ok: true,
