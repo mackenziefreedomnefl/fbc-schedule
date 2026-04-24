@@ -3255,15 +3255,55 @@
 
     async function refresh() {
       const emps = await api(`/api/clubs/${club.id}/employees`);
+      // Filter: active first, then archived
+      const active = emps.filter(e => !e.archived);
+      const archived = emps.filter(e => e.archived);
+      const sorted = [...active, ...archived];
+
       list.innerHTML = '';
       const table = el('table', { class: 'data-table' });
       table.appendChild(el('thead', {}, el('tr', {}, [
+        el('th', { style: 'width:40px;' }, 'Order'),
         el('th', {}, 'Name'), el('th', {}, 'Team'), el('th', {}, 'Status'), el('th', {}, 'Actions'),
       ])));
       const tbody = el('tbody');
-      emps.forEach(e => {
+      sorted.forEach((e, idx) => {
         const editable = canEditEmployee(e);
+        const isActive = !e.archived;
         const tr = el('tr');
+
+        // Order arrows
+        const orderTd = el('td', { style: 'text-align:center; white-space:nowrap;' });
+        if (editable && isActive) {
+          if (idx > 0 && !sorted[idx - 1].archived) {
+            orderTd.appendChild(el('button', {
+              class: 'ghost', style: 'font-size:14px; padding:0 4px; line-height:1;',
+              onclick: async () => {
+                const prev = sorted[idx - 1];
+                try {
+                  await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { sort_order: prev.sort_order } });
+                  await api(`/api/employees/${prev.id}`, { method: 'PATCH', body: { sort_order: e.sort_order } });
+                  refresh();
+                } catch (err) { toast(err.message, 'err'); }
+              },
+            }, '▲'));
+          }
+          if (idx < active.length - 1) {
+            orderTd.appendChild(el('button', {
+              class: 'ghost', style: 'font-size:14px; padding:0 4px; line-height:1;',
+              onclick: async () => {
+                const next = sorted[idx + 1];
+                try {
+                  await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { sort_order: next.sort_order } });
+                  await api(`/api/employees/${next.id}`, { method: 'PATCH', body: { sort_order: e.sort_order } });
+                  refresh();
+                } catch (err) { toast(err.message, 'err'); }
+              },
+            }, '▼'));
+          }
+        }
+        tr.appendChild(orderTd);
+
         const nameInput = el('input', { value: e.name });
         nameInput.disabled = !editable;
         const teamSelect = el('select');
