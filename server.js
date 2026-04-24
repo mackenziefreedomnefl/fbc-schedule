@@ -1859,6 +1859,31 @@ app.put('/api/advisory', ah(async (req, res) => {
   res.json({ ok: true, text: value });
 }));
 
+// ---------- pending tasks ----------
+app.get('/api/tasks', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const { rows: timeOff } = await pool.query(
+    `SELECT t.id, e.name AS employee_name, t.start_date, t.end_date
+       FROM time_off_requests t JOIN employees e ON e.id = t.employee_id
+      WHERE t.status = 'pending' ORDER BY t.start_date ASC`
+  );
+  const { rows: shiftReqs } = await pool.query(
+    `SELECT r.id, e.name AS employee_name, r.request_text, r.created_at
+       FROM shift_change_requests r JOIN employees e ON e.id = r.employee_id
+      WHERE r.status = 'pending' ORDER BY r.created_at DESC`
+  );
+  res.json({
+    time_off: timeOff.map(r => ({
+      ...r,
+      start_date: toDateStr(r.start_date),
+      end_date: toDateStr(r.end_date),
+    })),
+    shift_requests: shiftReqs,
+    total: timeOff.length + shiftReqs.length,
+  });
+}));
+
 // ---------- health ----------
 // ---------- export / backup ----------
 // Full JSON backup of all data (owner-only)
