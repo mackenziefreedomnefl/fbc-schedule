@@ -179,11 +179,13 @@ app.use('/api', (req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const origin = req.headers.origin || '';
   const host = req.headers.host || '';
-  // Allow same-origin, localhost, and trusted origins
-  if (!origin || origin.includes(host) || origin.includes('localhost') ||
-      origin === 'https://schedule.fbcnefl.com' || origin === 'https://fbcnefl.com') {
+  // Allow: no origin (same-origin), origin matches host, localhost, known domains, Railway
+  if (!origin || origin.includes(host) ||
+      origin.includes('localhost') || origin.includes('127.0.0.1') ||
+      origin.includes('fbcnefl.com') || origin.includes('railway.app')) {
     return next();
   }
+  console.log(`[security] blocked CSRF: origin=${origin} host=${host} method=${req.method} path=${req.path}`);
   return res.status(403).json({ error: 'Forbidden: origin mismatch' });
 });
 
