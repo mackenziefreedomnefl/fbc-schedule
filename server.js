@@ -1959,7 +1959,7 @@ app.post('/api/parse-schedule', parseLimiter, scheduleUpload.single('image'), ah
 
   try {
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 8192,
       messages: [{
         role: 'user',
@@ -1970,9 +1970,7 @@ app.post('/api/parse-schedule', parseLimiter, scheduleUpload.single('image'), ah
           },
           {
             type: 'text',
-            text: `Extract ALL weekly schedule data from this image/PDF. It contains schedule tables for boat club locations.
-
-IMPORTANT: Read the column headers carefully. The dates in the header row tell you which column is which day (Mon through Sun). Make sure each shift value goes in the correct day column.
+            text: `Extract the weekly schedule grid(s) from this file. There are seven day columns: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday (in that order).
 
 Known clubs and their employees:
 ${clubList}
@@ -1981,22 +1979,39 @@ Return ONLY valid JSON (no markdown, no backticks, no explanation) in this exact
 {
   "clubs": {
     "Club Name": {
-      "Employee Name": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      "Employee Name": ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
       ...
     }
   }
 }
 
-Rules:
-- The schedule is a grid with employee names in the first column and days Mon-Sun across the top
-- Each employee array must have EXACTLY 7 values: index 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
-- Use empty string "" for any day with no assignment (blank cell)
-- Copy shift text EXACTLY as shown: "East", "West", "Beach", "Camachee", "Shipyard", "Req Off", etc.
-- Include partial shifts exactly: "12 - Close Camachee", "Open - 4 East", "Beach - 1", "Capt Training", "Noon - Close Camachee", "Shipyard - 1", "Shipyard 12-3", "East - 4", etc.
-- Match employee names to the known lists above. If a name in the image isn't in the list, use their name exactly as shown.
-- The image may have multiple tables (e.g. "Jacksonville" with sub-sections "Julington Creek" and "Jacksonville Beach", plus "St. Augustine"). Group all Jacksonville employees under "Jacksonville" and all St. Augustine employees under "St. Augustine".
-- Include EVERY employee row you see, even if all their cells are empty.
-- Double-check: count that each array has exactly 7 elements.`,
+CRITICAL — COLUMN ALIGNMENT:
+The number one mistake to avoid: do NOT left-pack shifts. Each cell's position on the page determines which day it is. If a row has 5 visible shift values but one of them is in the Friday column and two are in Sunday, you must still return an array of 7 with empty strings in the right places.
+
+Use the horizontal position of each shift under its column header to decide which index it goes into. The DATE header row (e.g. "Monday, April 27, 2026" in column 1, "Tuesday, April 28, 2026" in column 2, etc.) is the ground truth for column position.
+
+Example — if a row looks like this on the page:
+
+    MON         TUE         WED         THU         FRI         SAT         SUN
+    East        East                                East        East        East
+
+Then the array MUST be: ["East","East","","","East","East","East"]
+NOT: ["East","East","East","East","","",""]
+NOT: ["East","","East","","East","East","East"]
+
+The two middle columns (Wed, Thu) have no text drawn there — they must be empty strings at indices 2 and 3.
+
+Other rules:
+- Each employee array MUST have EXACTLY 7 values (index 0=Mon ... 6=Sun). Double-check the length before you write it.
+- Empty/blank cell = "" (empty string). Dashes like "—" or "-" also mean empty; return "".
+- Copy shift text EXACTLY as shown, including partial-day notes: "West - 3:30 PM", "Beach - 330 PM", "Camachee - 3 30 PM", "Beach - 1", "East - 3:30 PM", "Camachee 12 - Close", "Camachee 10 - Close", "Shipyard", "Req Off".
+- Include EVERY employee row you see, even rows where all 7 cells are empty (return ["","","","","","",""]).
+- Match employee names to the known lists above. If a name in the file isn't in any list, use the name exactly as shown.
+- The file may have multiple tables per page (e.g. a Jacksonville section that contains both "Julington Creek" and "Jacksonville Beach" sub-tables, and a separate "St. Augustine" section). Merge all Jacksonville employees under "Jacksonville" and all St. Augustine employees under "St. Augustine".
+- Ignore "Total Persons …" and "Notes" rows — those are summary rows, not employees.
+- Ignore rows that contain only the date header.
+
+Before finishing, silently verify each array has length 7 and that the shift positions match what's visually under each day column. Then output ONLY the JSON.`,
           },
         ],
       }],
@@ -2012,8 +2027,31 @@ Rules:
       return res.status(422).json({ error: 'Could not parse AI response', raw: text.slice(0, 2000) });
     }
 
+    // Normalize: ensure every employee array has exactly 7 entries
+    const warnings = [];
+    for (const [clubName, shifts] of Object.entries(parsed.clubs || {})) {
+      for (const [emp, arr] of Object.entries(shifts)) {
+        if (!Array.isArray(arr)) {
+          shifts[emp] = ['', '', '', '', '', '', ''];
+          warnings.push(`${clubName}/${emp}: non-array, defaulted to 7 empties`);
+          continue;
+        }
+        if (arr.length !== 7) {
+          warnings.push(`${clubName}/${emp}: length ${arr.length}, padded/trimmed to 7`);
+          while (arr.length < 7) arr.push('');
+          if (arr.length > 7) arr.length = 7;
+        }
+        // Normalize dashes/null to ""
+        for (let i = 0; i < 7; i++) {
+          const v = arr[i];
+          if (v == null || v === '—' || v === '-' || v === '–') arr[i] = '';
+          else if (typeof v === 'string') arr[i] = v.trim();
+        }
+      }
+    }
+
     // Attach club IDs for the frontend
-    const result = { ok: true, clubs: {} };
+    const result = { ok: true, clubs: {}, warnings };
     for (const [clubName, shifts] of Object.entries(parsed.clubs || {})) {
       const cd = clubData[clubName];
       result.clubs[clubName] = { club_id: cd ? cd.id : null, shifts };
