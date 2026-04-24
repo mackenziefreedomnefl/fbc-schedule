@@ -725,6 +725,160 @@ app.get('/api/slack-timeoff/public', ah(async (req, res) => {
   }
 }));
 
+// ---------- Slack time-off auto-import ----------
+// Scans the time-off channel every 5 minutes, uses AI to parse messages
+// into structured time off requests, and creates them as pending.
+const SLACK_SCAN_INTERVAL = 5 * 60 * 1000; // 5 minutes
+let lastSlackScanTs = '0';
+
+async function scanSlackTimeOff() {
+  if (!SLACK_BOT_TOKEN || !SLACK_TIMEOFF_CHANNEL || !ANTHROPIC_API_KEY) return;
+
+  try {
+    // Get the last scan timestamp so we only process new messages
+    const { rows: tsRows } = await pool.query(
+      "SELECT value FROM app_state WHERE key = 'slack_timeoff_last_ts'"
+    );
+    const sinceTs = tsRows[0] ? tsRows[0].value : '0';
+
+    const history = await slackGet('conversations.history', {
+      channel: SLACK_TIMEOFF_CHANNEL,
+      oldest: sinceTs,
+      limit: '20',
+    });
+
+    const messages = (history.messages || [])
+      .filter(m => !m.subtype && m.text && parseFloat(m.ts) > parseFloat(sinceTs))
+      .sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+
+    if (!messages.length) return;
+
+    // Get all employee names for matching
+    const { rows: allEmps } = await pool.query(
+      'SELECT id, name, club_id FROM employees WHERE archived = FALSE'
+    );
+    const empNames = allEmps.map(e => e.name);
+
+    // Process each message with AI
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+    let newestTs = sinceTs;
+    let created = 0;
+
+    for (const msg of messages) {
+      if (parseFloat(msg.ts) > parseFloat(newestTs)) newestTs = msg.ts;
+
+      // Look up who posted
+      const slackUser = await lookupSlackUser(msg.user);
+      const posterName = slackUser ? slackUser.name : '';
+
+      try {
+        const aiResp = await client.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          messages: [{
+            role: 'user',
+            content: `Parse this time-off request from a Slack message. The poster's Slack display name is "${posterName}".
+
+Message: "${msg.text}"
+
+Known employees: ${JSON.stringify(empNames)}
+
+Return ONLY valid JSON (no markdown):
+{
+  "requests": [
+    {
+      "employee_name": "exact name from the known list",
+      "start_date": "YYYY-MM-DD",
+      "end_date": "YYYY-MM-DD",
+      "note": "brief summary"
+    }
+  ]
+}
+
+Rules:
+- Match the poster or mentioned person to the closest employee name in the known list
+- Parse dates from the message (e.g. "May 5-7" = 2026-05-05 to 2026-05-07, assume current year 2026)
+- If the message isn't a time-off request, return {"requests": []}
+- If you can't determine dates, return {"requests": []}
+- For single days, start_date = end_date`,
+          }],
+        });
+
+        const text = aiResp.content[0].text.trim();
+        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+        const parsed = JSON.parse(cleaned);
+
+        for (const req of (parsed.requests || [])) {
+          if (!req.employee_name || !req.start_date || !req.end_date) continue;
+
+          // Match employee
+          const emp = allEmps.find(e =>
+            e.name.toLowerCase() === req.employee_name.toLowerCase()
+          );
+          if (!emp) {
+            console.log(`[slack-timeoff] no match for "${req.employee_name}", skipping`);
+            continue;
+          }
+
+          // Check for duplicate
+          const { rows: dupes } = await pool.query(
+            `SELECT id FROM time_off_requests
+              WHERE employee_id = $1 AND start_date = $2 AND end_date = $3`,
+            [emp.id, req.start_date, req.end_date]
+          );
+          if (dupes.length) continue;
+
+          // Create pending request
+          await pool.query(
+            `INSERT INTO time_off_requests (employee_id, club_id, start_date, end_date, note, status)
+             VALUES ($1, $2, $3, $4, $5, 'pending')`,
+            [emp.id, emp.club_id, req.start_date, req.end_date, req.note || `From Slack: ${posterName}`]
+          );
+          created++;
+          console.log(`[slack-timeoff] created request: ${emp.name} ${req.start_date} to ${req.end_date}`);
+        }
+      } catch (parseErr) {
+        console.error(`[slack-timeoff] AI parse error for message:`, parseErr.message);
+      }
+    }
+
+    // Update the last-scanned timestamp
+    await pool.query(
+      `INSERT INTO app_state (key, value) VALUES ('slack_timeoff_last_ts', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [newestTs]
+    );
+
+    if (created) {
+      console.log(`[slack-timeoff] created ${created} new request(s) from Slack`);
+    }
+  } catch (err) {
+    console.error('[slack-timeoff] scan error:', err.message);
+  }
+}
+
+// Start scanning after server is up
+setTimeout(() => {
+  scanSlackTimeOff();
+  setInterval(scanSlackTimeOff, SLACK_SCAN_INTERVAL);
+}, 15000);
+
+// Manual trigger for owners
+app.post('/api/slack-timeoff/scan', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
+  if (!SLACK_BOT_TOKEN || !SLACK_TIMEOFF_CHANNEL) {
+    return res.json({ ok: false, error: 'SLACK_TOKEN and SLACK_CHANNEL not configured' });
+  }
+  if (!ANTHROPIC_API_KEY) {
+    return res.json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
+  }
+  await scanSlackTimeOff();
+  res.json({ ok: true });
+}));
+
 // ---------- clubs ----------
 app.get('/api/clubs', ah(async (req, res) => {
   const { rows } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
