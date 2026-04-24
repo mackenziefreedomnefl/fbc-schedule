@@ -3245,170 +3245,188 @@
   // -------- roster modal --------
   async function openRosterModal(club) {
     const content = el('div');
-    content.appendChild(el('h2', {}, `Manage roster — ${club.name}`));
+    content.appendChild(el('h2', {}, `Manage Staff — ${club.name}`));
 
-    async function refresh() {
-      const emps = await api(`/api/clubs/${club.id}/employees`);
-      // Filter: active first, then archived
-      const active = emps.filter(e => !e.archived);
-      const archived = emps.filter(e => e.archived);
-      const sorted = [...active, ...archived];
+    // Local working copy — we save everything at once
+    let roster = [];
 
-      list.innerHTML = '';
-      const table = el('table', { class: 'data-table' });
-      table.appendChild(el('thead', {}, el('tr', {}, [
-        el('th', { style: 'width:40px;' }, 'Order'),
-        el('th', {}, 'Name'), el('th', {}, 'Team'), el('th', {}, 'Status'), el('th', {}, 'Actions'),
-      ])));
-      const tbody = el('tbody');
-      sorted.forEach((e, idx) => {
-        const editable = canEditEmployee(e);
-        const isActive = !e.archived;
-        const tr = el('tr');
+    async function loadRoster() {
+      roster = await api(`/api/clubs/${club.id}/employees`);
+      renderRoster();
+    }
 
-        // Order arrows
-        const orderTd = el('td', { style: 'text-align:center; white-space:nowrap;' });
-        if (editable && isActive) {
-          if (idx > 0 && !sorted[idx - 1].archived) {
-            orderTd.appendChild(el('button', {
-              class: 'ghost', style: 'font-size:14px; padding:0 4px; line-height:1;',
-              onclick: async () => {
-                const prev = sorted[idx - 1];
-                try {
-                  await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { sort_order: prev.sort_order } });
-                  await api(`/api/employees/${prev.id}`, { method: 'PATCH', body: { sort_order: e.sort_order } });
-                  refresh();
-                } catch (err) { toast(err.message, 'err'); }
-              },
-            }, '▲'));
-          }
-          if (idx < active.length - 1) {
-            orderTd.appendChild(el('button', {
-              class: 'ghost', style: 'font-size:14px; padding:0 4px; line-height:1;',
-              onclick: async () => {
-                const next = sorted[idx + 1];
-                try {
-                  await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { sort_order: next.sort_order } });
-                  await api(`/api/employees/${next.id}`, { method: 'PATCH', body: { sort_order: e.sort_order } });
-                  refresh();
-                } catch (err) { toast(err.message, 'err'); }
-              },
-            }, '▼'));
-          }
-        }
-        tr.appendChild(orderTd);
+    function renderRoster() {
+      const active = roster.filter(e => !e.archived);
+      const archived = roster.filter(e => e.archived);
 
-        const nameInput = el('input', { value: e.name });
-        nameInput.disabled = !editable;
-        const teamSelect = el('select');
-        teamSelect.disabled = !editable;
-        const teamOpts = [...teamsForClub(club.name), ''];
-        if (e.team && !teamOpts.includes(e.team)) teamOpts.unshift(e.team);
-        teamOpts.forEach(opt => {
-          const o = el('option', { value: opt }, opt || '(none)');
-          if ((e.team || '') === opt) o.setAttribute('selected', 'selected');
-          teamSelect.appendChild(o);
-        });
-        tr.appendChild(el('td', {}, nameInput));
-        tr.appendChild(el('td', {}, teamSelect));
-        tr.appendChild(el('td', {}, e.archived ? el('span', { class: 'badge' }, 'archived') : el('span', { class: `badge ${teamBadgeClass(e.team)}` }, 'active')));
-        const actions = el('td');
-        if (editable) {
-          actions.appendChild(el('button', {
-            onclick: async () => {
-              try {
-                await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { name: nameInput.value, team: teamSelect.value } });
-                toast('Saved');
-                refresh();
-              } catch (err) { toast(err.message, 'err'); }
+      listDiv.innerHTML = '';
+      if (!active.length && !archived.length) {
+        listDiv.appendChild(el('div', { class: 'muted', style: 'padding:12px;' }, 'No employees.'));
+        return;
+      }
+
+      // Active employees
+      active.forEach((emp, idx) => {
+        const row = el('div', { class: 'roster-row' });
+
+        // Arrows
+        const arrows = el('div', { class: 'roster-arrows' });
+        if (idx > 0) {
+          arrows.appendChild(el('button', {
+            class: 'ghost', style: 'font-size:16px; padding:0 6px;',
+            onclick: () => {
+              // Swap in local array
+              const prev = active[idx - 1];
+              const tmpSort = emp.sort_order;
+              emp.sort_order = prev.sort_order;
+              prev.sort_order = tmpSort;
+              roster.sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0) || a.sort_order - b.sort_order);
+              renderRoster();
             },
-          }, 'Save'));
-          actions.appendChild(document.createTextNode(' '));
-          actions.appendChild(el('button', {
-            class: 'ghost',
-            onclick: async () => {
-              try {
-                if (e.archived) {
-                  await api(`/api/employees/${e.id}`, { method: 'PATCH', body: { archived: false } });
-                } else {
-                  await api(`/api/employees/${e.id}`, { method: 'DELETE' });
-                }
-                refresh();
-              } catch (err) { toast(err.message, 'err'); }
-            },
-          }, e.archived ? 'Restore' : 'Remove'));
-        } else {
-          actions.appendChild(el('span', { class: 'muted' }, '(not your team)'));
+          }, '▲'));
         }
-        tr.appendChild(actions);
-        tbody.appendChild(tr);
+        if (idx < active.length - 1) {
+          arrows.appendChild(el('button', {
+            class: 'ghost', style: 'font-size:16px; padding:0 6px;',
+            onclick: () => {
+              const next = active[idx + 1];
+              const tmpSort = emp.sort_order;
+              emp.sort_order = next.sort_order;
+              next.sort_order = tmpSort;
+              roster.sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0) || a.sort_order - b.sort_order);
+              renderRoster();
+            },
+          }, '▼'));
+        }
+        row.appendChild(arrows);
+
+        // Name (editable)
+        const nameIn = el('input', { value: emp.name, style: 'flex:1; padding:6px 8px;' });
+        nameIn.addEventListener('change', () => { emp.name = nameIn.value; });
+        row.appendChild(nameIn);
+
+        // Team
+        const teams = teamsForClub(club.name);
+        if (teams.length) {
+          const teamSel = el('select', { style: 'padding:6px;' });
+          teams.forEach(t => {
+            const o = el('option', { value: t }, t);
+            if (emp.team === t) o.selected = true;
+            teamSel.appendChild(o);
+          });
+          if (!teams.includes(emp.team || '')) {
+            const o = el('option', { value: emp.team || '' }, emp.team || '(none)');
+            o.selected = true;
+            teamSel.prepend(o);
+          }
+          teamSel.addEventListener('change', () => { emp.team = teamSel.value; });
+          row.appendChild(teamSel);
+        }
+
+        // Remove
+        row.appendChild(el('button', {
+          class: 'ghost danger', style: 'font-size:12px;',
+          onclick: () => { emp.archived = true; renderRoster(); },
+        }, 'Remove'));
+
+        listDiv.appendChild(row);
       });
-      table.appendChild(tbody);
-      list.innerHTML = '';
-      list.appendChild(table);
 
-      // Save Order button — writes clean sequential sort_orders
-      if (active.length > 1) {
-        const saveOrderBtn = el('button', {
-          class: 'primary', style: 'margin-top:10px;',
-          onclick: async () => {
-            saveOrderBtn.disabled = true;
-            saveOrderBtn.textContent = 'Saving...';
-            try {
-              for (let i = 0; i < active.length; i++) {
-                await api(`/api/employees/${active[i].id}`, {
-                  method: 'PATCH',
-                  body: { sort_order: i },
-                });
-              }
-              toast('Order saved');
-              await loadAllSchedules();
-              renderBody();
-              refresh();
-            } catch (err) { toast(err.message, 'err'); }
-            saveOrderBtn.disabled = false;
-            saveOrderBtn.textContent = 'Save Order';
-          },
-        }, 'Save Order');
-        list.appendChild(saveOrderBtn);
+      // Archived
+      if (archived.length) {
+        listDiv.appendChild(el('div', { style: 'margin-top:12px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;' }, 'Archived'));
+        archived.forEach(emp => {
+          const row = el('div', { class: 'roster-row roster-archived' });
+          row.appendChild(el('span', { style: 'flex:1; opacity:0.5;' }, emp.name));
+          row.appendChild(el('button', {
+            class: 'ghost', style: 'font-size:12px;',
+            onclick: () => { emp.archived = false; renderRoster(); },
+          }, 'Restore'));
+          listDiv.appendChild(row);
+        });
       }
     }
 
-    const list = el('div');
-    content.appendChild(list);
+    const listDiv = el('div');
+    content.appendChild(listDiv);
 
     // Add new employee
-    const editableTeams = teamsForClub(club.name).filter(t => canEditTeam(club.id, t));
-    if (editableTeams.length) {
-      const addWrap = el('div', { class: 'toolbar', style: 'margin-top:14px;' });
-      const nameIn = el('input', { placeholder: 'New employee name' });
-      const teamIn = el('select');
-      editableTeams.forEach(t => teamIn.appendChild(el('option', { value: t }, t)));
-      addWrap.appendChild(nameIn);
+    const teams = teamsForClub(club.name);
+    const addWrap = el('div', { class: 'roster-add' });
+    const nameIn = el('input', { placeholder: 'New employee name', style: 'flex:1; padding:8px;' });
+    addWrap.appendChild(nameIn);
+    if (teams.length) {
+      const teamIn = el('select', { style: 'padding:8px;' });
+      teams.forEach(t => teamIn.appendChild(el('option', { value: t }, t)));
       addWrap.appendChild(teamIn);
       addWrap.appendChild(el('button', {
         class: 'primary',
         onclick: async () => {
           if (!nameIn.value.trim()) return;
           try {
-            await api(`/api/clubs/${club.id}/employees`, { method: 'POST', body: { name: nameIn.value.trim(), team: teamIn.value } });
+            await api(`/api/clubs/${club.id}/employees`, {
+              method: 'POST', body: { name: nameIn.value.trim(), team: teamIn.value },
+            });
             nameIn.value = '';
-            refresh();
+            await loadRoster();
+            toast('Added');
           } catch (err) { toast(err.message, 'err'); }
         },
       }, 'Add'));
-      content.appendChild(addWrap);
+    } else {
+      addWrap.appendChild(el('button', {
+        class: 'primary',
+        onclick: async () => {
+          if (!nameIn.value.trim()) return;
+          try {
+            await api(`/api/clubs/${club.id}/employees`, {
+              method: 'POST', body: { name: nameIn.value.trim() },
+            });
+            nameIn.value = '';
+            await loadRoster();
+            toast('Added');
+          } catch (err) { toast(err.message, 'err'); }
+        },
+      }, 'Add'));
     }
+    content.appendChild(addWrap);
 
-    content.appendChild(el('div', { class: 'modal-actions' }, [
+    // Save All + Close
+    content.appendChild(el('div', { class: 'modal-actions', style: 'margin-top:16px;' }, [
+      el('button', { class: 'ghost', onclick: async () => {
+        closeModal(); await loadAllSchedules(); renderBody();
+      }}, 'Cancel'),
       el('button', {
         class: 'primary',
-        onclick: async () => { closeModal(); await loadAllSchedules(); renderBody(); },
-      }, 'Save & Close'),
+        onclick: async () => {
+          // Save everything: name, team, sort_order, archived for each employee
+          let saved = 0;
+          try {
+            for (let i = 0; i < roster.length; i++) {
+              const emp = roster[i];
+              const sortOrder = emp.archived ? 9999 : i;
+              await api(`/api/employees/${emp.id}`, {
+                method: 'PATCH',
+                body: {
+                  name: emp.name,
+                  team: emp.team || null,
+                  sort_order: sortOrder,
+                  archived: emp.archived,
+                },
+              });
+              saved++;
+            }
+            toast(`Saved ${saved} employees`);
+            closeModal();
+            await loadAllSchedules();
+            renderBody();
+          } catch (err) { toast(err.message, 'err'); }
+        },
+      }, 'Save All & Close'),
     ]));
 
     openModal(content, { wide: true });
-    refresh();
+    loadRoster();
   }
 
   document.addEventListener('DOMContentLoaded', bootstrap);
