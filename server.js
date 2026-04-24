@@ -1563,7 +1563,7 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
 
 // Submit a shift change request (no auth — staff use this)
 app.post('/api/shift-requests', ah(async (req, res) => {
-  const { employee_id, request_text } = req.body || {};
+  const { employee_id, request_text, kind, swap_data } = req.body || {};
   if (!employee_id || !request_text) {
     return res.status(400).json({ error: 'employee_id and request_text required' });
   }
@@ -1574,9 +1574,20 @@ app.post('/api/shift-requests', ah(async (req, res) => {
   if (!empRows[0]) return res.status(404).json({ error: 'employee not found' });
   const emp = empRows[0];
 
+  const validKind = ['swap', 'coverage', 'other'].includes(kind) ? kind : 'other';
+  // Only store structured swap data when the kind is 'swap' and fields are well-formed
+  let cleanSwapData = null;
+  if (validKind === 'swap' && swap_data && typeof swap_data === 'object') {
+    const swapWithId = Number(swap_data.swap_with_employee_id);
+    const dates = Array.isArray(swap_data.dates) ? swap_data.dates.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+    if (swapWithId && dates.length) {
+      cleanSwapData = { swap_with_employee_id: swapWithId, dates };
+    }
+  }
+
   const { rows } = await pool.query(
-    `INSERT INTO shift_change_requests (employee_id, club_id, request_text) VALUES ($1, $2, $3) RETURNING id`,
-    [employee_id, emp.club_id, request_text]
+    `INSERT INTO shift_change_requests (employee_id, club_id, request_text, kind, swap_data) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [employee_id, emp.club_id, request_text, validKind, cleanSwapData ? JSON.stringify(cleanSwapData) : null]
   );
 
   // Email notification to owners
@@ -1624,16 +1635,96 @@ app.get('/api/shift-requests', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'sign in required' });
   const { rows } = await pool.query(
-    `SELECT r.id, r.employee_id, r.club_id, r.request_text, r.status, r.created_at, r.resolved_at,
-            e.name AS employee_name, c.name AS club_name
+    `SELECT r.id, r.employee_id, r.club_id, r.request_text, r.status, r.kind, r.swap_data,
+            r.created_at, r.resolved_at, r.executed_at,
+            e.name AS employee_name, c.name AS club_name,
+            sw.name AS swap_with_name
        FROM shift_change_requests r
        JOIN employees e ON e.id = r.employee_id
        JOIN clubs c ON c.id = r.club_id
+       LEFT JOIN employees sw ON sw.id = (r.swap_data->>'swap_with_employee_id')::int
       ORDER BY r.status = 'pending' DESC, r.created_at DESC
       LIMIT 100`
   );
   res.json(rows);
 }));
+
+// Helper: compute Monday (week_start, YYYY-MM-DD) and 0-6 day_index for a given ISO date
+function mondayAndDayIndex(isoDate) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  // getUTCDay: 0=Sun, 1=Mon ... 6=Sat — remap so Monday=0
+  const jsDay = d.getUTCDay();
+  const dayIndex = (jsDay + 6) % 7;
+  const monday = new Date(d);
+  monday.setUTCDate(monday.getUTCDate() - dayIndex);
+  const yyyy = monday.getUTCFullYear();
+  const mm = String(monday.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(monday.getUTCDate()).padStart(2, '0');
+  return { weekStart: `${yyyy}-${mm}-${dd}`, dayIndex };
+}
+
+// Execute a shift swap: for each date, exchange shift_text between the two employees
+async function executeShiftSwap(request, approver) {
+  const { employee_id, swap_data } = request;
+  const swapWithId = swap_data.swap_with_employee_id;
+  const dates = swap_data.dates || [];
+  const swappedCells = [];
+
+  for (const isoDate of dates) {
+    const { weekStart, dayIndex } = mondayAndDayIndex(isoDate);
+
+    // Employee A (requester) and B (swap partner) may live in different clubs,
+    // so each has their own `schedules` row for the same week.
+    const { rows: empA } = await pool.query('SELECT club_id FROM employees WHERE id = $1', [employee_id]);
+    const { rows: empB } = await pool.query('SELECT club_id FROM employees WHERE id = $1', [swapWithId]);
+    if (!empA[0] || !empB[0]) continue;
+
+    async function scheduleIdFor(clubId) {
+      const { rows: sRows } = await pool.query(
+        'SELECT id FROM schedules WHERE club_id = $1 AND week_start = $2',
+        [clubId, weekStart]
+      );
+      if (sRows[0]) return sRows[0].id;
+      const { rows: ins } = await pool.query(
+        'INSERT INTO schedules (club_id, week_start) VALUES ($1, $2) RETURNING id',
+        [clubId, weekStart]
+      );
+      return ins[0].id;
+    }
+
+    const schedA = await scheduleIdFor(empA[0].club_id);
+    const schedB = await scheduleIdFor(empB[0].club_id);
+
+    async function getShift(schedId, empId) {
+      const { rows } = await pool.query(
+        'SELECT shift_text FROM shifts WHERE schedule_id = $1 AND employee_id = $2 AND day_index = $3',
+        [schedId, empId, dayIndex]
+      );
+      return rows[0] ? rows[0].shift_text : '';
+    }
+
+    const shiftA = await getShift(schedA, employee_id);
+    const shiftB = await getShift(schedB, swapWithId);
+
+    async function setShift(schedId, empId, text) {
+      await pool.query(
+        `INSERT INTO shifts (schedule_id, employee_id, day_index, shift_text)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (schedule_id, employee_id, day_index)
+         DO UPDATE SET shift_text = EXCLUDED.shift_text`,
+        [schedId, empId, dayIndex, text]
+      );
+    }
+
+    await setShift(schedA, employee_id, shiftB);
+    await setShift(schedB, swapWithId, shiftA);
+    await pool.query('UPDATE schedules SET updated_at = NOW() WHERE id IN ($1, $2)', [schedA, schedB]);
+
+    swappedCells.push({ date: isoDate, dayIndex, weekStart, shiftA, shiftB });
+  }
+
+  return swappedCells;
+}
 
 // Approve/deny a shift change request
 app.post('/api/shift-requests/:id/resolve', ah(async (req, res) => {
@@ -1641,11 +1732,35 @@ app.post('/api/shift-requests/:id/resolve', ah(async (req, res) => {
   if (!user) return res.status(401).json({ error: 'sign in required' });
   const { status } = req.body || {};
   if (!['approved', 'denied'].includes(status)) return res.status(400).json({ error: 'status must be approved or denied' });
-  await pool.query(
-    `UPDATE shift_change_requests SET status = $1, resolved_by = $2, resolved_at = NOW() WHERE id = $3`,
-    [status, user.id, Number(req.params.id)]
+  const requestId = Number(req.params.id);
+
+  // Fetch the request to see if we should auto-execute a swap
+  const { rows: reqRows } = await pool.query(
+    'SELECT id, employee_id, kind, swap_data, status FROM shift_change_requests WHERE id = $1',
+    [requestId]
   );
-  res.json({ ok: true });
+  if (!reqRows[0]) return res.status(404).json({ error: 'not found' });
+  const request = reqRows[0];
+
+  let swapped = null;
+  if (status === 'approved' && request.kind === 'swap' && request.swap_data && request.status !== 'approved') {
+    try {
+      swapped = await executeShiftSwap(request, user);
+    } catch (err) {
+      console.error('[shift-request] auto-swap failed:', err.message);
+      return res.status(500).json({ error: 'Auto-swap failed: ' + err.message });
+    }
+  }
+
+  await pool.query(
+    `UPDATE shift_change_requests
+        SET status = $1, resolved_by = $2, resolved_at = NOW(),
+            executed_at = CASE WHEN $3::boolean THEN NOW() ELSE executed_at END
+      WHERE id = $4`,
+    [status, user.id, !!swapped, requestId]
+  );
+
+  res.json({ ok: true, swapped: swapped ? swapped.length : 0 });
 }));
 
 // Delete a shift change request

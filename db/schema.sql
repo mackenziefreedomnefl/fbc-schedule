@@ -151,6 +151,13 @@ CREATE TABLE IF NOT EXISTS shift_change_requests (
 );
 CREATE INDEX IF NOT EXISTS shift_change_requests_status_idx ON shift_change_requests(status);
 
+-- Structured fields for automated shift swaps. `kind` is 'swap' | 'coverage' | 'other'.
+-- When kind='swap' with valid swap_data {swap_with_employee_id, dates[]},
+-- approving the request will auto-exchange shifts in the `shifts` table.
+ALTER TABLE shift_change_requests ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'other';
+ALTER TABLE shift_change_requests ADD COLUMN IF NOT EXISTS swap_data JSONB;
+ALTER TABLE shift_change_requests ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ;
+
 -- Key/value flags for one-shot migration logic (e.g. example data seeding)
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,
