@@ -328,6 +328,27 @@ async function main() {
       if (approvedReqs.length) console.log(`[migrate] reset ${approvedReqs.length} time off requests back to pending`);
     }
 
+    // Clean up old time off requests — delete anything with end_date before next Monday
+    const { rows: cleanupFlag } = await pool.query(
+      "SELECT value FROM app_state WHERE key = 'timeoff_cleanup_v1'"
+    );
+    if (!cleanupFlag[0]) {
+      const today = new Date();
+      const dayOfWeek = today.getDay();
+      const daysUntilMonday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
+      const nextMonday = new Date(today);
+      nextMonday.setDate(today.getDate() + daysUntilMonday);
+      const nextMondayStr = nextMonday.toISOString().slice(0, 10);
+      const { rowCount } = await pool.query(
+        'DELETE FROM time_off_requests WHERE end_date < $1',
+        [nextMondayStr]
+      );
+      await pool.query(
+        "INSERT INTO app_state (key, value) VALUES ('timeoff_cleanup_v1', NOW()::text) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+      );
+      if (rowCount) console.log(`[migrate] deleted ${rowCount} old time off requests (before ${nextMondayStr})`);
+    }
+
     console.log('[migrate] done.');
   } catch (err) {
     console.error('[migrate] failed:', err);
