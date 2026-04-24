@@ -1959,7 +1959,7 @@ app.post('/api/parse-schedule', parseLimiter, scheduleUpload.single('image'), ah
 
   try {
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-opus-4-20250514',
       max_tokens: 8192,
       messages: [{
         role: 'user',
@@ -2018,6 +2018,7 @@ Before finishing, silently verify each array has length 7 and that the shift pos
     });
 
     const text = message.content[0].text.trim();
+    console.log('[parse-schedule] AI raw response length:', text.length);
     let parsed;
     try {
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
@@ -2025,6 +2026,12 @@ Before finishing, silently verify each array has length 7 and that the shift pos
     } catch (parseErr) {
       console.error('[parse-schedule] AI response was not valid JSON:', text.slice(0, 500));
       return res.status(422).json({ error: 'Could not parse AI response', raw: text.slice(0, 2000) });
+    }
+    // Log a sample for debugging
+    const firstClub = Object.keys(parsed.clubs || {})[0];
+    if (firstClub) {
+      const sample = Object.entries(parsed.clubs[firstClub]).slice(0, 3);
+      console.log('[parse-schedule] sample:', firstClub, JSON.stringify(sample));
     }
 
     // Normalize: ensure every employee array has exactly 7 entries
