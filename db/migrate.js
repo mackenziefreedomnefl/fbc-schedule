@@ -141,9 +141,9 @@ async function main() {
     );
     if (rGleaton) console.log('[migrate] renamed John Gleaton-Hernandez → John Gleaton');
 
-    // Sync authoritative rosters. For every listed employee: upsert, unarchive,
-    // set team + sort_order to match the list. For names in REMOVED_FROM_ROSTER:
-    // archive. Idempotent.
+    // Sync rosters: only INSERT employees that don't exist yet.
+    // Does NOT update existing employees — their team, sort_order, and
+    // archived status are managed by owners/managers in the app.
     for (const roster of ROSTERS) {
       const { rows: clubRows } = await pool.query('SELECT id FROM clubs WHERE name = $1', [roster.club]);
       if (!clubRows[0]) continue;
@@ -151,13 +151,11 @@ async function main() {
       for (let i = 0; i < roster.names.length; i++) {
         const name = roster.names[i];
         const sortOrder = roster.sortBase + i;
-        const { rowCount } = await pool.query(
-          `UPDATE employees
-             SET team = $1, sort_order = $2, archived = FALSE
-           WHERE club_id = $3 AND name = $4`,
-          [roster.team, sortOrder, clubId, name]
+        const { rows: existing } = await pool.query(
+          'SELECT id FROM employees WHERE club_id = $1 AND name = $2',
+          [clubId, name]
         );
-        if (rowCount === 0) {
+        if (!existing[0]) {
           await pool.query(
             'INSERT INTO employees (club_id, name, team, sort_order, archived) VALUES ($1,$2,$3,$4,FALSE)',
             [clubId, name, roster.team, sortOrder]
