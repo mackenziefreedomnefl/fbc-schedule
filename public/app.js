@@ -618,7 +618,7 @@
           onclick: () => { window.open('?view=manager', '_blank'); },
         }, 'View as Manager'));
         menu.appendChild(el('button', { onclick: openAdminPanel }, 'Add/Remove Managers'));
-        menu.appendChild(el('button', { onclick: () => openImportScheduleModal() }, 'Import from Image'));
+        menu.appendChild(el('button', { onclick: () => openImportScheduleModal() }, 'Import Schedule'));
       }
 
       menu.appendChild(el('button', { onclick: openTimeOffPanel }, 'Time Off'));
@@ -2265,71 +2265,90 @@
     openModal(content);
   }
 
-  // -------- Import Schedule from Image --------
+  // -------- Import Schedule (paste from spreadsheet) --------
   function openImportScheduleModal() {
     const content = el('div');
-    content.appendChild(el('h2', {}, 'Import Schedule from Image'));
+    content.appendChild(el('h2', {}, 'Import Schedule'));
     content.appendChild(el('p', { class: 'muted' },
-      'Upload a photo or PDF of your schedule. AI will read it and fill in shifts for all clubs found in the image.'));
+      'Copy your schedule from Excel or Google Sheets and paste it below. The first column should be employee names, and the remaining 7 columns should be Mon through Sun shifts.'));
 
-    const fileInput = el('input', { type: 'file', accept: 'image/*,application/pdf' });
-    content.appendChild(fileInput);
+    // Club selector
+    const clubSelect = el('select', { style: 'width:100%; padding:10px; font-size:15px; margin:8px 0;' });
+    state.clubs.forEach(c => {
+      clubSelect.appendChild(el('option', { value: c.id }, c.name));
+    });
+    content.appendChild(el('label', { style: 'font-weight:600; display:block; margin-top:8px;' }, 'Club'));
+    content.appendChild(clubSelect);
 
-    const statusDiv = el('div', { class: 'muted', style: 'margin-top:10px;' });
-    content.appendChild(statusDiv);
+    content.appendChild(el('label', { style: 'font-weight:600; display:block; margin-top:12px;' }, 'Paste schedule data'));
+    const textArea = document.createElement('textarea');
+    textArea.style.cssText = 'width:100%; min-height:200px; padding:10px; font-size:13px; font-family:monospace; border:1px solid var(--border); border-radius:8px; margin:4px 0;';
+    textArea.placeholder = 'Nick Tragemann\tEast\tEast\t\t\tEast\t\tEast\nAlison Conner\tWest\tWest\t\t\tWest\tWest\t\n...';
+    content.appendChild(textArea);
 
-    const previewDiv = el('div', { style: 'margin-top:12px; max-height:60vh; overflow-y:auto;' });
+    content.appendChild(el('p', { class: 'muted', style: 'font-size:12px;' },
+      'Tip: In Excel/Sheets, select the employee names + 7 day columns, Ctrl+C, then Ctrl+V here. Empty cells become blank shifts.'));
+
+    const previewDiv = el('div', { style: 'margin-top:12px; max-height:50vh; overflow-y:auto;' });
     content.appendChild(previewDiv);
 
-    const btnRow = el('div', { style: 'margin-top:10px; display:flex; gap:8px;' });
-    const parseBtn = el('button', {
-      class: 'primary',
-      disabled: true,
-      onclick: async () => {
-        const file = fileInput.files[0];
-        if (!file) return;
-        parseBtn.disabled = true;
-        parseBtn.textContent = 'Reading schedule...';
-        statusDiv.textContent = 'AI is reading your schedule — this may take 15-30 seconds...';
-        previewDiv.innerHTML = '';
+    const errDiv = el('div', { class: 'error' });
+    content.appendChild(errDiv);
 
-        const formData = new FormData();
-        formData.append('image', file);
-
-        try {
-          const res = await fetch('/api/parse-schedule', {
-            method: 'POST',
-            credentials: 'same-origin',
-            body: formData,
+    content.appendChild(el('div', { style: 'display:flex; gap:8px; margin-top:10px;' }, [
+      el('button', {
+        class: 'primary',
+        onclick: () => {
+          errDiv.textContent = '';
+          const text = textArea.value.trim();
+          if (!text) { errDiv.textContent = 'Paste your schedule data first'; return; }
+          const parsed = parseSpreadsheetText(text);
+          if (!parsed.length) { errDiv.textContent = 'Could not parse any rows. Make sure each row has a name + up to 7 tab-separated shift values.'; return; }
+          // Show preview
+          const clubId = Number(clubSelect.value);
+          const clubName = state.clubs.find(c => c.id === clubId)?.name || '';
+          const parsedClubs = {};
+          parsedClubs[clubName] = { club_id: clubId, shifts: {} };
+          parsed.forEach(row => {
+            parsedClubs[clubName].shifts[row.name] = row.days;
           });
-          const result = await res.json();
-          if (!res.ok) throw new Error(result.error || 'Parse failed');
-
-          const clubCount = Object.keys(result.clubs || {}).length;
-          let totalEmps = 0;
-          for (const c of Object.values(result.clubs || {})) {
-            totalEmps += Object.keys(c.shifts || {}).length;
-          }
-          statusDiv.textContent = `Found ${clubCount} club${clubCount !== 1 ? 's' : ''}, ${totalEmps} employees. Review below and click Apply All.`;
-          showMultiClubPreview(previewDiv, result.clubs || {});
-        } catch (err) {
-          statusDiv.textContent = '';
-          toast(err.message, 'err');
-          parseBtn.disabled = false;
-          parseBtn.textContent = 'Parse Schedule';
-        }
-      },
-    }, 'Parse Schedule');
-
-    fileInput.addEventListener('change', () => {
-      parseBtn.disabled = !fileInput.files.length;
-    });
-
-    btnRow.appendChild(parseBtn);
-    btnRow.appendChild(el('button', { class: 'ghost', onclick: closeModal }, 'Cancel'));
-    content.appendChild(btnRow);
+          previewDiv.innerHTML = '';
+          showMultiClubPreview(previewDiv, parsedClubs);
+        },
+      }, 'Preview'),
+      el('button', { class: 'ghost', onclick: closeModal }, 'Cancel'),
+    ]));
 
     openModal(content, { wide: true });
+  }
+
+  function parseSpreadsheetText(text) {
+    const rows = [];
+    const lines = text.split('\n').filter(l => l.trim());
+    for (const line of lines) {
+      // Split by tab (Excel/Sheets copy) or multiple spaces
+      let cols = line.split('\t');
+      if (cols.length < 2) cols = line.split(/\s{2,}/);
+      if (cols.length < 2) continue;
+
+      const name = cols[0].trim();
+      if (!name) continue;
+      // Skip header-like rows
+      const lower = name.toLowerCase();
+      if (lower === 'employee' || lower.includes('monday') || lower.includes('total') ||
+          lower.includes('location') || lower.includes('notes')) continue;
+
+      const days = [];
+      for (let i = 1; i <= 7; i++) {
+        let val = (cols[i] || '').trim();
+        if (val === '—' || val === '-' || val === '–') val = '';
+        days.push(val);
+      }
+      // Pad to 7 if needed
+      while (days.length < 7) days.push('');
+      rows.push({ name, days });
+    }
+    return rows;
   }
 
   function showMultiClubPreview(container, parsedClubs) {
