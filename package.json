@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node db/migrate.js && node server.js",
-    "migrate": "node db/migrate.js"
+    "migrate": "node db/migrate.js",
+    "db:backup": "pg_dump \"$DATABASE_URL\" --no-owner --no-acl --format=custom --file=backup-$(date +%Y%m%d-%H%M%S).dump"
   },
   "engines": {
     "node": ">=18"
