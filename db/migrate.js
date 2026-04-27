@@ -281,11 +281,11 @@ async function main() {
       }
     }
 
-    // Prune audit log entries older than 30 days.
+    // Prune audit log entries older than 1 year.
     const { rowCount: pruned } = await pool.query(
-      "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '30 days'"
+      "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '365 days'"
     );
-    if (pruned) console.log(`[migrate] pruned ${pruned} audit log entries older than 30 days`);
+    if (pruned) console.log(`[migrate] pruned ${pruned} audit log entries older than 365 days`);
 
     // One-shot example data seed (shifts + totals for this week and next week).
     // Controlled by the app_state flag 'example_seeded' so it only runs once.

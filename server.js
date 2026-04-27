@@ -478,13 +478,13 @@ app.get('/api/audit', ah(async (req, res) => {
             c.name AS club_name
        FROM audit_log a
        LEFT JOIN clubs c ON c.id = a.club_id
-      WHERE a.created_at >= NOW() - INTERVAL '30 days'
+      WHERE a.created_at >= NOW() - INTERVAL '365 days'
       ORDER BY a.created_at DESC
       LIMIT $1 OFFSET $2`,
     [limit, offset]
   );
   const { rows: countRows } = await pool.query(
-    "SELECT COUNT(*)::int AS total FROM audit_log WHERE created_at >= NOW() - INTERVAL '30 days'"
+    "SELECT COUNT(*)::int AS total FROM audit_log WHERE created_at >= NOW() - INTERVAL '365 days'"
   );
   res.json({ entries: rows, total: countRows[0].total, limit, offset });
 }));
