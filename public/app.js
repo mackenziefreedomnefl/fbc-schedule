@@ -816,34 +816,19 @@
         body.appendChild(renderClubSection(club, state.tab, idx === 0));
       });
     } else {
-      // Anonymous staff view: pick a location first, then show that club only.
+      // Anonymous: prompt sign-in. Staff view the published schedule on fbcnefl.com.
       if (!state.staffClubId) {
-        // Location picker
-        const picker = el('div', { class: 'location-picker' });
-        picker.appendChild(el('h2', {}, 'Select your location'));
-        const btnWrap = el('div', { class: 'location-picker-buttons' });
-        state.clubs.forEach(c => {
-          btnWrap.appendChild(el('button', {
-            class: 'primary location-picker-btn',
-            onclick: async () => {
-              state.staffClubId = c.id;
-              await loadAllSchedules();
-              renderBody();
-            },
-          }, c.name));
-        });
-        picker.appendChild(btnWrap);
-        const viewAllWrap = el('div', { style: 'text-align:center; margin-top:12px;' });
-        viewAllWrap.appendChild(el('button', {
-          class: 'ghost location-picker-btn',
-          onclick: async () => {
-            state.staffClubId = 'all';
-            await loadAllSchedules();
-            renderBody();
-          },
-        }, 'View All'));
-        picker.appendChild(viewAllWrap);
-        body.appendChild(picker);
+        const card = el('div', { class: 'location-picker' });
+        card.appendChild(el('h2', {}, 'Sign in to edit schedules'));
+        card.appendChild(el('p', { class: 'muted', style: 'text-align:center; margin-bottom:1rem;' },
+          'Managers and owners sign in here. Staff can view the published schedule at fbcnefl.com.'));
+        const btnWrap = el('div', { class: 'location-picker-buttons', style: 'justify-content:center;' });
+        btnWrap.appendChild(el('button', {
+          class: 'primary location-picker-btn',
+          onclick: openLoginModal,
+        }, 'Sign In'));
+        card.appendChild(btnWrap);
+        body.appendChild(card);
         return;
       }
 
