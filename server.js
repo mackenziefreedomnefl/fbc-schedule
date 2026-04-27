@@ -693,9 +693,10 @@ app.get('/api/slack-timeoff/public', ah(async (req, res) => {
   if (!SLACK_BOT_TOKEN || !SLACK_TIMEOFF_CHANNEL) {
     return res.json({ configured: false, messages: [] });
   }
-  // Cache for 60s
+  // Cache for 60s, but allow ?fresh=1 to bypass for manual refresh
   const now = Date.now();
-  if (_slackCache.timeoff.data && (now - _slackCache.timeoff.ts) < 60000) {
+  const bypass = req.query.fresh === '1';
+  if (!bypass && _slackCache.timeoff.data && (now - _slackCache.timeoff.ts) < 60000) {
     return res.json(_slackCache.timeoff.data);
   }
   try {
