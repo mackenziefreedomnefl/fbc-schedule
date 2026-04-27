@@ -96,6 +96,15 @@ label input, label select, label textarea { margin-top: 4px; }
 .brand { font-weight: 600; display: flex; align-items: center; gap: 12px; color: #fff; }
 .brand-title { font-size: 16px; font-weight: 600; margin: 0; }
 .brand-logo { height: 44px; width: auto; display: block; border-radius: 4px; }
+.topbar-hub-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600;
+  padding: 7px 12px; border-radius: 6px;
+  color: #fff; text-decoration: none;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.topbar-hub-btn:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.4); }
 .tabs { display: flex; gap: 6px; margin-left: 16px; }
 .tabs button { background: transparent; border-color: transparent; color: var(--muted); }
 .tabs button.active { color: var(--text); border-color: var(--border); background: var(--panel-2); }
