@@ -2009,10 +2009,36 @@
 
   async function openTimeOffPanel() {
     const content = el('div');
-    const titleRow = el('div', { style: 'display:flex; justify-content:space-between; align-items:center;' });
+    const titleRow = el('div', { style: 'display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;' });
     titleRow.appendChild(el('h2', { style: 'margin:0;' }, 'Time Off Requests'));
+    const titleBtns = el('div', { style: 'display:flex; gap:6px; flex-wrap:wrap;' });
     if (isOwner()) {
-      titleRow.appendChild(el('button', {
+      const syncBtn = el('button', {
+        class: 'primary',
+        style: 'font-size:11px;',
+        onclick: async () => {
+          syncBtn.disabled = true;
+          syncBtn.textContent = 'Syncing…';
+          try {
+            const result = await api('/api/slack-timeoff/scan', { method: 'POST' });
+            if (result.ok) {
+              const dup = result.duplicates_removed || 0;
+              toast(dup ? `Synced. Removed ${dup} duplicate(s).` : 'Synced from Slack.');
+              refreshList();
+              renderLastSync(result.synced_at);
+            } else {
+              toast('Sync failed: ' + (result.error || 'unknown'), 'err');
+            }
+          } catch (err) {
+            toast(err.message, 'err');
+          } finally {
+            syncBtn.disabled = false;
+            syncBtn.textContent = 'Sync from Slack';
+          }
+        },
+      }, 'Sync from Slack');
+      titleBtns.appendChild(syncBtn);
+      titleBtns.appendChild(el('button', {
         class: 'ghost',
         style: 'font-size:11px;',
         onclick: async () => {
@@ -2027,7 +2053,23 @@
         },
       }, 'Reset All Approved'));
     }
+    titleRow.appendChild(titleBtns);
     content.appendChild(titleRow);
+
+    const lastSyncEl = el('div', { class: 'muted', style: 'font-size:11px; margin-top:4px;' }, '');
+    content.appendChild(lastSyncEl);
+    function renderLastSync(iso) {
+      if (!iso) { lastSyncEl.textContent = 'Last synced: never'; return; }
+      const d = new Date(iso);
+      const ago = Math.floor((Date.now() - d.getTime()) / 60000);
+      const agoLabel = ago < 1 ? 'just now' : ago < 60 ? (ago + ' min ago') : (Math.floor(ago / 60) + ' hr ' + (ago % 60) + ' min ago');
+      lastSyncEl.textContent = 'Last synced from Slack: ' + d.toLocaleString() + ' (' + agoLabel + ')';
+    }
+    if (isOwner()) {
+      api('/api/slack-timeoff/last-sync')
+        .then(r => renderLastSync(r.synced_at))
+        .catch(() => {});
+    }
 
     // Add new request form
     const addWrap = el('div', { class: 'timeoff-add' });
