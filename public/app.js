@@ -2499,7 +2499,7 @@
     content.appendChild(el('h2', {}, 'Admin'));
     content.appendChild(el('p', { class: 'muted' }, 'Enter your manager or owner credentials.'));
 
-    const emailIn = el('input', { type: 'text', placeholder: 'email or username', autocomplete: 'username' });
+    const emailIn = el('input', { type: 'text', placeholder: 'username', autocomplete: 'username' });
     const passIn = el('input', { type: 'password', placeholder: 'password', autocomplete: 'current-password' });
     const errDiv = el('div', { class: 'error' });
 
@@ -2519,7 +2519,7 @@
     passIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     emailIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') passIn.focus(); });
 
-    content.appendChild(el('label', {}, ['Email', emailIn]));
+    content.appendChild(el('label', {}, ['Username', emailIn]));
     content.appendChild(el('label', {}, ['Password', passIn]));
     content.appendChild(errDiv);
     content.appendChild(el('div', { class: 'modal-actions' }, [
