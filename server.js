@@ -2193,6 +2193,25 @@ app.put('/api/advisory', ah(async (req, res) => {
   res.json({ ok: true, text: value });
 }));
 
+// ---------- training calendar proxy ----------
+const TRAINING_CAL_GAS_URL = 'https://script.google.com/macros/s/AKfycbwxJox0hzQpqL3Tbpp5xR4_pXi1AryiBlMBTOJLRTCx8Ia9tMPpzXwaKNnCCvIHjzzwWA/exec';
+const _trainingCalCache = { data: null, ts: 0 };
+
+app.get('/api/training-calendar', ah(async (req, res) => {
+  const now = Date.now();
+  const bypass = req.query.fresh === '1';
+  if (!bypass && _trainingCalCache.data && (now - _trainingCalCache.ts) < 300000) {
+    return res.json(_trainingCalCache.data);
+  }
+  const fetch = globalThis.fetch || require('node-fetch');
+  const r = await fetch(TRAINING_CAL_GAS_URL, { redirect: 'follow' });
+  if (!r.ok) return res.status(502).json({ ok: false, error: 'calendar fetch failed', status: r.status });
+  const data = await r.json();
+  _trainingCalCache.data = data;
+  _trainingCalCache.ts = now;
+  res.json(data);
+}));
+
 // ---------- pending tasks ----------
 app.get('/api/tasks', ah(async (req, res) => {
   const user = await loadUser(req);
