@@ -210,7 +210,7 @@ app.use('/api', (req, res, next) => {
   if (origin === 'https://fbcnefl.com' || origin === 'http://fbcnefl.com' || origin === 'https://www.fbcnefl.com') {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-hub-key');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -687,6 +687,67 @@ async function lookupSlackUser(userId) {
     return info;
   } catch (e) { return { name: 'Unknown', avatar: null }; }
 }
+
+// ---------- Hub file commits (notice.json, cards.json) ----------
+// Lets the hub admin UI commit JSON updates to the fbcnefl-hub repo without
+// each admin managing their own GitHub PAT. Auth is a shared key + the
+// schedule server's GITHUB_TOKEN env var does the actual GitHub commit.
+const HUB_REPO = 'mackenziefreedomnefl/fbcnefl-hub';
+const HUB_FILE_ALLOWLIST = ['notice.json', 'cards.json'];
+
+app.post('/api/hub-files', ah(async (req, res) => {
+  const submittedKey = req.get('x-hub-key') || (req.body && req.body.key) || '';
+  if (!process.env.HUB_EDITOR_KEY) {
+    return res.status(500).json({ error: 'HUB_EDITOR_KEY not set on server' });
+  }
+  if (submittedKey !== process.env.HUB_EDITOR_KEY) {
+    return res.status(401).json({ error: 'invalid hub key' });
+  }
+  if (!process.env.GITHUB_TOKEN) {
+    return res.status(500).json({ error: 'GITHUB_TOKEN not set on server' });
+  }
+  const { path, content, message } = req.body || {};
+  if (!HUB_FILE_ALLOWLIST.includes(path)) {
+    return res.status(400).json({ error: 'path not in allowlist' });
+  }
+  if (typeof content !== 'string' || !content) {
+    return res.status(400).json({ error: 'content (base64) required' });
+  }
+
+  const ghHeaders = {
+    'Authorization': 'Bearer ' + process.env.GITHUB_TOKEN,
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'fbc-schedule-server',
+  };
+  const url = `https://api.github.com/repos/${HUB_REPO}/contents/${path}`;
+  let sha;
+  try {
+    const getRes = await fetch(url, { headers: ghHeaders });
+    if (getRes.ok) {
+      const cur = await getRes.json();
+      sha = cur.sha;
+    } else if (getRes.status !== 404) {
+      const txt = await getRes.text();
+      return res.status(getRes.status).json({ error: 'github get failed', detail: txt });
+    }
+    const putRes = await fetch(url, {
+      method: 'PUT',
+      headers: { ...ghHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: message || ('Update ' + path),
+        content,
+        sha,
+      }),
+    });
+    if (!putRes.ok) {
+      const txt = await putRes.text();
+      return res.status(putRes.status).json({ error: 'github put failed', detail: txt });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'commit threw', detail: e.message });
+  }
+}));
 
 // Public read-only feed of the Slack time-off channel — used by fbcnefl.com hub
 app.get('/api/slack-timeoff/public', ah(async (req, res) => {
