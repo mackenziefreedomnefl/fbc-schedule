@@ -928,6 +928,23 @@ setTimeout(() => {
 }, 15000);
 
 // Manual trigger for owners
+// Dedupe pending time-off rows that match an older row (same employee + dates).
+// Approved/denied rows are never deleted.
+async function dedupeTimeOffRequests() {
+  const { rowCount } = await pool.query(
+    `DELETE FROM time_off_requests t1
+     WHERE t1.status = 'pending'
+       AND EXISTS (
+         SELECT 1 FROM time_off_requests t2
+         WHERE t2.id < t1.id
+           AND t2.employee_id = t1.employee_id
+           AND t2.start_date = t1.start_date
+           AND t2.end_date = t1.end_date
+       )`
+  );
+  return rowCount;
+}
+
 app.all('/api/slack-timeoff/scan', ah(async (req, res) => {
   const user = await loadUser(req);
   if (!isOwner(user)) return res.status(403).json({ error: 'owners only' });
@@ -947,8 +964,17 @@ app.all('/api/slack-timeoff/scan', ah(async (req, res) => {
       console.log('[slack-timeoff] reset timestamp — will scan all past messages');
     }
     await scanSlackTimeOff();
+    const duplicatesRemoved = await dedupeTimeOffRequests();
+    const syncedAt = new Date().toISOString();
+    await pool.query(
+      `INSERT INTO app_state (key, value) VALUES ('slack_timeoff_last_synced_at', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [syncedAt]
+    );
     res.json({
       ok: true,
+      synced_at: syncedAt,
+      duplicates_removed: duplicatesRemoved,
       config: {
         slack_token: SLACK_BOT_TOKEN ? 'set (' + SLACK_BOT_TOKEN.slice(0, 10) + '...)' : 'missing',
         slack_channel: SLACK_TIMEOFF_CHANNEL || 'missing',
@@ -958,6 +984,16 @@ app.all('/api/slack-timeoff/scan', ah(async (req, res) => {
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
+}));
+
+// Last sync timestamp (read-only, signed-in users)
+app.get('/api/slack-timeoff/last-sync', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  const { rows } = await pool.query(
+    "SELECT value FROM app_state WHERE key = 'slack_timeoff_last_synced_at'"
+  );
+  res.json({ synced_at: rows[0] ? rows[0].value : null });
 }));
 
 // ---------- clubs ----------
