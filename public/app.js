@@ -100,6 +100,37 @@
     return res.json();
   }
 
+  // Format a time-off date range as "May 7" / "May 7-9" / "May 30 – June 2" /
+  // adds the year only when not in the current calendar year.
+  const TIMEOFF_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function formatTimeOffDate(iso, includeYear) {
+    if (!iso) return '';
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return iso;
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    const day = Number(m[3]);
+    const monthName = TIMEOFF_MONTH_NAMES[month - 1] || '';
+    return monthName + ' ' + day + (includeYear ? ', ' + year : '');
+  }
+  function formatTimeOffRange(startIso, endIso) {
+    if (!startIso) return '';
+    const s = String(startIso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!s) return startIso;
+    const e = endIso ? String(endIso).match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+    const sYear = Number(s[1]), sMonth = Number(s[2]), sDay = Number(s[3]);
+    const thisYear = new Date().getFullYear();
+    const showYear = sYear !== thisYear;
+    if (!e || (e[1] === s[1] && e[2] === s[2] && e[3] === s[3])) {
+      return formatTimeOffDate(startIso, showYear);
+    }
+    const eYear = Number(e[1]), eMonth = Number(e[2]), eDay = Number(e[3]);
+    if (sYear === eYear && sMonth === eMonth) {
+      return TIMEOFF_MONTH_NAMES[sMonth - 1] + ' ' + sDay + '–' + eDay + (showYear ? ', ' + sYear : '');
+    }
+    return formatTimeOffDate(startIso, showYear) + ' – ' + formatTimeOffDate(endIso, showYear || sYear !== eYear);
+  }
+
   function toast(msg, kind = 'ok') {
     const t = el('div', { class: `toast ${kind}` }, msg);
     document.body.appendChild(t);
@@ -2150,8 +2181,7 @@
 
           row.appendChild(el('span', { class: 'timeoff-name' }, r.employee_name));
           row.appendChild(el('span', { class: 'timeoff-club muted' }, r.club_name));
-          row.appendChild(el('span', { class: 'timeoff-dates' },
-            r.start_date === r.end_date ? r.start_date : `${r.start_date} to ${r.end_date}`));
+          row.appendChild(el('span', { class: 'timeoff-dates' }, formatTimeOffRange(r.start_date, r.end_date)));
           if (r.note) row.appendChild(el('span', { class: 'timeoff-note-text muted' }, r.note));
           if (r.deny_reason && r.status === 'denied') {
             row.appendChild(el('span', {
@@ -3606,8 +3636,7 @@
       tasks.time_off.forEach(r => {
         const row = el('div', { class: 'task-row' });
         row.appendChild(el('span', { class: 'task-name' }, r.employee_name));
-        row.appendChild(el('span', { class: 'task-detail' },
-          r.start_date === r.end_date ? r.start_date : `${r.start_date} to ${r.end_date}`));
+        row.appendChild(el('span', { class: 'task-detail' }, formatTimeOffRange(r.start_date, r.end_date)));
         content.appendChild(row);
       });
       content.appendChild(el('button', {
