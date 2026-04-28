@@ -2193,24 +2193,27 @@ app.put('/api/advisory', ah(async (req, res) => {
   res.json({ ok: true, text: value });
 }));
 
-// ---------- training calendar proxy ----------
-const TRAINING_CAL_GAS_URL = 'https://script.google.com/macros/s/AKfycbwxJox0hzQpqL3Tbpp5xR4_pXi1AryiBlMBTOJLRTCx8Ia9tMPpzXwaKNnCCvIHjzzwWA/exec';
-const _trainingCalCache = { data: null, ts: 0 };
+// ---------- training calendar (pushed from Google Apps Script) ----------
+const TRAINING_SYNC_SECRET = _env('TRAINING_SYNC_SECRET');
+let _trainingEvents = [];
 
-app.get('/api/training-calendar', ah(async (req, res) => {
-  const now = Date.now();
-  const bypass = req.query.fresh === '1';
-  if (!bypass && _trainingCalCache.data && (now - _trainingCalCache.ts) < 300000) {
-    return res.json(_trainingCalCache.data);
+// Apps Script pushes events here on a timer
+app.post('/api/training-calendar/sync', (req, res) => {
+  const secret = req.headers['x-sync-secret'] || '';
+  if (!TRAINING_SYNC_SECRET || secret !== TRAINING_SYNC_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
-  const fetch = globalThis.fetch || require('node-fetch');
-  const r = await fetch(TRAINING_CAL_GAS_URL, { redirect: 'follow' });
-  if (!r.ok) return res.status(502).json({ ok: false, error: 'calendar fetch failed', status: r.status });
-  const data = await r.json();
-  _trainingCalCache.data = data;
-  _trainingCalCache.ts = now;
-  res.json(data);
-}));
+  const { events } = req.body || {};
+  if (!Array.isArray(events)) return res.status(400).json({ error: 'events array required' });
+  _trainingEvents = events;
+  console.log(`[training-cal] synced ${events.length} events`);
+  res.json({ ok: true, count: events.length });
+});
+
+// Hub reads events from here
+app.get('/api/training-calendar', (req, res) => {
+  res.json({ ok: true, events: _trainingEvents });
+});
 
 // ---------- pending tasks ----------
 app.get('/api/tasks', ah(async (req, res) => {
