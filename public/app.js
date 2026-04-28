@@ -948,6 +948,10 @@
         class: 'ghost', style: 'font-size:11px;',
         onclick: () => { window.location.href = `/api/export/pdf?week=${data.schedule.week_start}`; },
       }, 'PDF'));
+      header.appendChild(el('button', {
+        class: 'ghost', style: 'font-size:11px;',
+        onclick: () => { window.location.href = `/api/export/schedule.json?week=${data.schedule.week_start}`; },
+      }, 'JSON'));
       if (isOwner() && !isPastView()) {
         header.appendChild(el('button', {
           class: 'ghost danger', style: 'font-size:11px;',
@@ -2614,6 +2618,37 @@
 
     const tabBody = el('div');
     content.appendChild(tabBody);
+
+    // Per-week archive download (any signed-in user — handy for managers too)
+    const archiveWrap = el('div', {
+      style: 'margin-top:18px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);',
+    });
+    archiveWrap.appendChild(el('div', { style: 'font-weight:600;margin-bottom:6px;' }, 'Download a past week'));
+    archiveWrap.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px;' },
+      'Pick any date — we\'ll download the schedule for that week (Monday–Sunday).'));
+    const archiveDate = el('input', {
+      type: 'date',
+      value: mondayOf(new Date()),
+      style: 'padding:8px;font-size:14px;margin-right:8px;',
+    });
+    const goPdf = el('button', {
+      class: 'ghost', style: 'margin-right:6px;',
+      onclick: () => {
+        const wk = mondayOf(archiveDate.value);
+        window.location.href = `/api/export/pdf?week=${wk}`;
+      },
+    }, 'Download PDF');
+    const goJson = el('button', {
+      class: 'ghost',
+      onclick: () => {
+        const wk = mondayOf(archiveDate.value);
+        window.location.href = `/api/export/schedule.json?week=${wk}`;
+      },
+    }, 'Download JSON');
+    archiveWrap.appendChild(archiveDate);
+    archiveWrap.appendChild(goPdf);
+    archiveWrap.appendChild(goJson);
+    content.appendChild(archiveWrap);
 
     content.appendChild(el('div', { class: 'modal-actions' }, [
       el('button', { onclick: closeModal }, 'Close'),
