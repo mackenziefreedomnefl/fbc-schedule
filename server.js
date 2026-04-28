@@ -695,6 +695,19 @@ async function lookupSlackUser(userId) {
 const HUB_REPO = 'mackenziefreedomnefl/fbcnefl-hub';
 const HUB_FILE_ALLOWLIST = ['notice.json', 'cards.json'];
 
+// Public diagnostic — tells you which env vars the running server actually
+// has loaded, without exposing values. Hit from a browser when "HUB_EDITOR_KEY
+// not set" errors appear: if hub_editor_key_set is false, the deploy hasn't
+// picked up the variable yet (force a redeploy on Railway).
+app.get('/api/hub-files/status', (req, res) => {
+  res.json({
+    hub_editor_key_set: !!process.env.HUB_EDITOR_KEY,
+    github_token_set: !!process.env.GITHUB_TOKEN,
+    server_started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+    uptime_seconds: Math.floor(process.uptime()),
+  });
+});
+
 app.post('/api/hub-files', ah(async (req, res) => {
   const submittedKey = req.get('x-hub-key') || (req.body && req.body.key) || '';
   if (!process.env.HUB_EDITOR_KEY) {
