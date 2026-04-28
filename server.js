@@ -2242,6 +2242,48 @@ app.get('/api/tasks', ah(async (req, res) => {
 
 // ---------- health ----------
 // ---------- export / backup ----------
+// Single-week JSON snapshot (signed-in users)
+app.get('/api/export/schedule.json', ah(async (req, res) => {
+  const user = await loadUser(req);
+  if (!user) return res.status(401).json({ error: 'sign in required' });
+  let weekStart;
+  try { weekStart = mondayOf(req.query.week); }
+  catch (e) { return res.status(400).json({ error: 'bad week param (YYYY-MM-DD)' }); }
+
+  const { rows: clubs } = await pool.query('SELECT id, name FROM clubs ORDER BY name');
+  const out = [];
+  for (const club of clubs) {
+    const schedule = await getOrCreateSchedule(club.id, weekStart);
+    const { rows: employees } = await pool.query(
+      'SELECT id, name, team, archived, sort_order FROM employees WHERE club_id = $1 ORDER BY sort_order, id',
+      [club.id]
+    );
+    const { rows: shifts } = await pool.query(
+      'SELECT employee_id, day_index, shift_text FROM shifts WHERE schedule_id = $1 ORDER BY employee_id, day_index',
+      [schedule.id]
+    );
+    const { rows: totals } = await pool.query(
+      'SELECT location, day_index, count_text FROM location_totals WHERE schedule_id = $1 ORDER BY location, day_index',
+      [schedule.id]
+    );
+    out.push({
+      club_id: club.id,
+      club_name: club.name,
+      schedule: {
+        id: schedule.id,
+        week_start: schedule.week_start instanceof Date ? schedule.week_start.toISOString().slice(0, 10) : schedule.week_start,
+        status: schedule.status,
+        notes: schedule.notes,
+      },
+      employees,
+      shifts,
+      totals,
+    });
+  }
+  res.setHeader('Content-Disposition', `attachment; filename="fbc-schedule-${weekStart}.json"`);
+  res.json({ exported_at: new Date().toISOString(), week_start: weekStart, clubs: out });
+}));
+
 // Full JSON backup of all data (owner-only)
 app.get('/api/export/backup', ah(async (req, res) => {
   const user = await loadUser(req);
