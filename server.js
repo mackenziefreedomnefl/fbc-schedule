@@ -203,6 +203,10 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '1mb' }));
+// Hub events are sent via navigator.sendBeacon as text/plain to avoid CORS
+// preflights (beacons can't preflight on iOS Safari). Parse the raw text so
+// the /api/hub-events handler can JSON.parse it.
+app.use(express.text({ type: 'text/plain', limit: '32kb' }));
 
 // CORS for fbcnefl.com hub
 app.use('/api', (req, res, next) => {
@@ -814,7 +818,10 @@ app.get('/api/slack-reviews/public', ah(async (req, res) => {
 const HUB_EVENT_TYPES = new Set(['page_view', 'tab_switch', 'card_click']);
 
 app.post('/api/hub-events', ah(async (req, res) => {
-  const b = req.body || {};
+  let b = req.body || {};
+  if (typeof b === 'string') {
+    try { b = JSON.parse(b); } catch (_) { b = {}; }
+  }
   const type = String(b.event_type || '').slice(0, 32);
   if (!HUB_EVENT_TYPES.has(type)) {
     return res.status(400).json({ error: 'unknown event_type' });
