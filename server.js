@@ -705,6 +705,10 @@ app.get('/api/hub-files/status', (req, res) => {
   res.json({
     hub_editor_key_set: !!process.env.HUB_EDITOR_KEY,
     github_token_set: !!process.env.GITHUB_TOKEN,
+    slack_token_set: !!process.env.SLACK_TOKEN,
+    slack_channel_set: !!process.env.SLACK_CHANNEL,
+    slack_timeoff_channel_set: !!process.env.SLACK_TIMEOFF_CHANNEL,
+    slack_reviews_channel_set: !!process.env.SLACK_REVIEWS_CHANNEL,
     server_started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
     uptime_seconds: Math.floor(process.uptime()),
   });
@@ -797,6 +801,81 @@ app.get('/api/slack-reviews/public', ah(async (req, res) => {
     console.error('[slack-reviews] failed:', e.message);
     res.json({ configured: true, error: e.message, messages: [] });
   }
+}));
+
+// ---------- Hub site activity (analytics) ----------
+// Records anonymous page-view / tab-switch / card-click events fired by the
+// fbcnefl.com hub. session_id is a random per-tab id (no PII). user_label is
+// only present when a hub admin is signed in. Stats endpoint is gated by the
+// hub editor key so only admins can read aggregate numbers.
+const HUB_EVENT_TYPES = new Set(['page_view', 'tab_switch', 'card_click']);
+
+app.post('/api/hub-events', ah(async (req, res) => {
+  const b = req.body || {};
+  const type = String(b.event_type || '').slice(0, 32);
+  if (!HUB_EVENT_TYPES.has(type)) {
+    return res.status(400).json({ error: 'unknown event_type' });
+  }
+  await pool.query(
+    `INSERT INTO hub_events
+       (event_type, tab, card_id, card_label, session_id, user_label, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [
+      type,
+      String(b.tab || '').slice(0, 64),
+      String(b.card_id || '').slice(0, 128),
+      String(b.card_label || '').slice(0, 256),
+      String(b.session_id || '').slice(0, 64),
+      String(b.user_label || '').slice(0, 128),
+      String(req.get('user-agent') || '').slice(0, 256),
+    ]
+  );
+  res.status(204).end();
+}));
+
+app.get('/api/hub-events/stats', ah(async (req, res) => {
+  const submittedKey = req.get('x-hub-key') || req.query.key || '';
+  if (!process.env.HUB_EDITOR_KEY) {
+    return res.status(500).json({ error: 'HUB_EDITOR_KEY not set on server' });
+  }
+  if (submittedKey !== process.env.HUB_EDITOR_KEY) {
+    return res.status(401).json({ error: 'invalid hub key' });
+  }
+  const [daily, topCards, tabBreakdown, totals] = await Promise.all([
+    pool.query(
+      `SELECT to_char(date_trunc('day', created_at AT TIME ZONE 'America/New_York'), 'YYYY-MM-DD') AS day,
+              COUNT(DISTINCT session_id) AS sessions,
+              COUNT(*) FILTER (WHERE event_type = 'page_view') AS page_views
+         FROM hub_events
+        WHERE created_at > NOW() - INTERVAL '30 days'
+        GROUP BY 1 ORDER BY 1`
+    ),
+    pool.query(
+      `SELECT card_label, card_id, COUNT(*)::int AS clicks
+         FROM hub_events
+        WHERE event_type = 'card_click' AND created_at > NOW() - INTERVAL '7 days'
+        GROUP BY card_label, card_id
+        ORDER BY clicks DESC LIMIT 20`
+    ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(tab, ''), '(unknown)') AS tab, COUNT(*)::int AS views
+         FROM hub_events
+        WHERE event_type IN ('page_view','tab_switch') AND created_at > NOW() - INTERVAL '7 days'
+        GROUP BY 1 ORDER BY views DESC`
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS total_events,
+              COUNT(DISTINCT session_id)::int AS total_sessions
+         FROM hub_events
+        WHERE created_at > NOW() - INTERVAL '30 days'`
+    ),
+  ]);
+  res.json({
+    daily: daily.rows,
+    top_cards: topCards.rows,
+    tab_breakdown: tabBreakdown.rows,
+    totals_30d: totals.rows[0],
+  });
 }));
 
 // Public read-only feed of the Slack time-off channel — used by fbcnefl.com hub
