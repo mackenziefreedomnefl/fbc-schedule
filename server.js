@@ -705,6 +705,10 @@ app.get('/api/hub-files/status', (req, res) => {
   res.json({
     hub_editor_key_set: !!process.env.HUB_EDITOR_KEY,
     github_token_set: !!process.env.GITHUB_TOKEN,
+    slack_token_set: !!process.env.SLACK_TOKEN,
+    slack_channel_set: !!process.env.SLACK_CHANNEL,
+    slack_timeoff_channel_set: !!process.env.SLACK_TIMEOFF_CHANNEL,
+    slack_reviews_channel_set: !!process.env.SLACK_REVIEWS_CHANNEL,
     server_started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
     uptime_seconds: Math.floor(process.uptime()),
   });
