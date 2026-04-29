@@ -657,9 +657,11 @@ const SLACK_BOT_TOKEN = _env('SLACK_TOKEN');
 const SLACK_CHANNEL_ID = _env('SLACK_CHANNEL');
 // Channel where staff post time-off requests (falls back to SLACK_CHANNEL)
 const SLACK_TIMEOFF_CHANNEL = _env('SLACK_TIMEOFF_CHANNEL') || SLACK_CHANNEL_ID;
+// Channel where customer survey/review messages are posted (e.g., #qxreviews)
+const SLACK_REVIEWS_CHANNEL = _env('SLACK_REVIEWS_CHANNEL') || '';
 
 // Small in-memory cache so we don't hammer the Slack API
-const _slackCache = { timeoff: { data: null, ts: 0 } };
+const _slackCache = { timeoff: { data: null, ts: 0 }, reviews: { data: null, ts: 0 } };
 const _slackUserCache = new Map(); // user_id -> { name, real_name }
 
 async function slackGet(method, params) {
@@ -759,6 +761,41 @@ app.post('/api/hub-files', ah(async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'commit threw', detail: e.message });
+  }
+}));
+
+// Public read-only feed of the Slack reviews/surveys channel — used by fbcnefl.com hub
+app.get('/api/slack-reviews/public', ah(async (req, res) => {
+  if (!SLACK_BOT_TOKEN || !SLACK_REVIEWS_CHANNEL) {
+    return res.json({ configured: false, messages: [] });
+  }
+  const now = Date.now();
+  const bypass = req.query.fresh === '1';
+  if (!bypass && _slackCache.reviews.data && (now - _slackCache.reviews.ts) < 60000) {
+    return res.json(_slackCache.reviews.data);
+  }
+  try {
+    const history = await slackGet('conversations.history', {
+      channel: SLACK_REVIEWS_CHANNEL,
+      limit: '50',
+    });
+    const raw = (history.messages || []).filter(m => !m.subtype || m.subtype === 'thread_broadcast');
+    const messages = [];
+    for (const m of raw) {
+      const user = m.user ? await lookupSlackUser(m.user) : null;
+      messages.push({
+        ts: m.ts,
+        text: m.text || '',
+        user_name: user ? user.name : (m.username || 'Unknown'),
+        user_avatar: user ? user.avatar : null,
+      });
+    }
+    const payload = { configured: true, messages };
+    _slackCache.reviews = { data: payload, ts: now };
+    res.json(payload);
+  } catch (e) {
+    console.error('[slack-reviews] failed:', e.message);
+    res.json({ configured: true, error: e.message, messages: [] });
   }
 }));
 
