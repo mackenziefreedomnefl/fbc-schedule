@@ -783,15 +783,18 @@ app.get('/api/slack-reviews/public', ah(async (req, res) => {
       channel: SLACK_REVIEWS_CHANNEL,
       limit: '200',
     });
-    const raw = (history.messages || []).filter(m => !m.subtype || m.subtype === 'thread_broadcast');
+    const raw = (history.messages || []).filter(m =>
+      !m.subtype || m.subtype === 'thread_broadcast' || m.subtype === 'bot_message'
+    );
     const messages = [];
     for (const m of raw) {
       const user = m.user ? await lookupSlackUser(m.user) : null;
+      const botAvatar = m.icons && (m.icons.image_72 || m.icons.image_48 || m.icons.image_64) || null;
       messages.push({
         ts: m.ts,
         text: m.text || '',
         user_name: user ? user.name : (m.username || 'Unknown'),
-        user_avatar: user ? user.avatar : null,
+        user_avatar: user ? user.avatar : botAvatar,
       });
     }
     const payload = { configured: true, messages };
