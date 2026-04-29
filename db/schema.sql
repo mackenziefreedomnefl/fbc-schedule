@@ -164,3 +164,20 @@ CREATE TABLE IF NOT EXISTS app_state (
   value TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Hub site activity (page views, tab switches, card clicks). Anonymous by
+-- default — session_id is a random per-tab id from sessionStorage, no PII.
+-- user_label is set only when an admin is signed in on the hub.
+CREATE TABLE IF NOT EXISTS hub_events (
+  id BIGSERIAL PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  tab TEXT NOT NULL DEFAULT '',
+  card_id TEXT NOT NULL DEFAULT '',
+  card_label TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  user_label TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS hub_events_created_idx ON hub_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS hub_events_type_idx ON hub_events(event_type);
