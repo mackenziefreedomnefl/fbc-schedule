@@ -781,7 +781,7 @@ app.get('/api/slack-reviews/public', ah(async (req, res) => {
   try {
     const history = await slackGet('conversations.history', {
       channel: SLACK_REVIEWS_CHANNEL,
-      limit: '50',
+      limit: '200',
     });
     const raw = (history.messages || []).filter(m => !m.subtype || m.subtype === 'thread_broadcast');
     const messages = [];
